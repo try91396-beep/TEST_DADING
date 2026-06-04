@@ -5,8 +5,66 @@ from translations import load_translations
 from datetime import timedelta, datetime
 import json 
 import traceback
+import re  # 確保導入正則表達式模組
 
 menu_bp = Blueprint('menu', __name__)
+
+# ==========================================
+# 0. 輔助函式：解析客製化選項 (移至全域，供各路由使用)
+# ==========================================
+def parse_advanced_opts(opt_str):
+    if not opt_str: 
+        return []
+        
+    results = []
+    
+    # 使用 Regex 切割最外層。邏輯：只有在「括號/大括號外面」的逗號才拿來當作分隔點。
+    pattern = r',(?![^(]*\))(?![^{]*\})'
+    raw_groups = re.split(pattern, opt_str)
+    
+    for group in raw_groups:
+        group = group.strip()
+        if not group:
+            continue
+            
+        # 情況 A：處理 Checkbox 群組，例如 "2(不要蔥油, 少蔥油)"
+        chk_match = re.match(r'^(\d*)\((.*?)\)$', group)
+        if chk_match:
+            num_str, inner_str = chk_match.groups()
+            max_select = int(num_str) if num_str else 1
+            options = [o.strip() for o in inner_str.split(',') if o.strip()]
+            
+            results.append({
+                "type": "checkbox",
+                "max_select": max_select,
+                "required": False,
+                "options": options
+            })
+            continue
+
+        # 情況 B：處理 Radiobox 群組，例如 "{不要韭菜, 少韭菜, 韭菜多}"
+        rad_match = re.match(r'^\{（.*?）\}$', group) or re.match(r'^\{(.*?)\}$', group)
+        if rad_match:
+            inner_str = rad_match.group(1)
+            options = [o.strip() for o in inner_str.split(',') if o.strip()]
+            
+            results.append({
+                "type": "radio",
+                "max_select": 1,
+                "required": True,
+                "options": options
+            })
+            continue
+
+        # 情況 C：處理一般單一選項，例如 "加大："
+        results.append({
+            "type": "checkbox",
+            "max_select": 1,
+            "required": False,
+            "options": [group]
+        })
+                
+    return results
 
 # ==========================================
 # 1. 共用函數：讀取產品與設定
@@ -15,12 +73,12 @@ def get_menu_data():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # 1. 讀取所有設定 (包含外送設定與你新增的店家基本資訊)
+    # 1. 讀取所有設定
     cur.execute("SELECT key, value FROM settings")
     settings_rows = cur.fetchall()
     settings = {row[0]: row[1] for row in settings_rows}
     
-    # 【核心升級】確保所有外送與店家基本設定都有安全預設值，避免 KeyDriven 錯誤或崩潰
+    # 確保所有外送與店家基本設定都有安全預設值
     default_settings = {
         'delivery_min_price': '0',
         'shop_name': '我的美味餐廳',
@@ -29,10 +87,9 @@ def get_menu_data():
         'shop_open_time': '10:30',
         'shop_close_time': '20:30',
         'shop_logo_url': 'https://example.com/logo.png',
-        'shop_open': '1'  # 補上全店營業開關預設
+        'shop_open': '1'  
     }
     
-    # 如果資料庫裡缺少某個 key，就自動補上預設值
     for key, fallback_value in default_settings.items():
         if key not in settings or not settings[key]:
             settings[key] = fallback_value
@@ -53,7 +110,6 @@ def get_menu_data():
 
     p_list = []
     for p in products:
-        # 處理自定義選項字串轉陣列
         def parse_opts(opt_str, fallback_str=None):
             if opt_str: return opt_str.split(',')
             if fallback_str: return fallback_str.split(',')
@@ -85,8 +141,6 @@ def get_menu_data():
 # ==========================================
 def process_order_submission(request, order_type_override=None):
     display_lang = request.form.get('lang_input', 'zh')
-    
-    # --- Debug ---
     print(f"DEBUG: Processing Order. OverrideType={order_type_override}")
 
     conn = get_db_connection()
@@ -110,14 +164,12 @@ def process_order_submission(request, order_type_override=None):
         final_lang = request.form.get('lang_input', 'zh')
         old_order_id = request.form.get('old_order_id')
         
-        # 決定訂單類型 (優先順序：程式指定 > 表單指定 > 預設 dine_in)
         order_type = order_type_override if order_type_override else request.form.get('order_type', 'dine_in')
         
-        # 如果是外送單，但後台關閉了外送 -> 阻擋
         if order_type == 'delivery' and not delivery_enabled:
              return "Delivery Service is currently disabled / 外送服務目前關閉中", 403
 
-        # --- C. 處理編輯模式：抓取舊訂單資料作為後備 (Backfill) ---
+        # --- C. 處理編輯模式：抓取舊訂單資料作為後備 ---
         db_old_data = {}
         if old_order_id:
             cur.execute("""
@@ -127,21 +179,14 @@ def process_order_submission(request, order_type_override=None):
             """, (old_order_id,))
             row = cur.fetchone()
             if row:
-                # 將舊資料轉為字典方便後續呼叫
                 db_old_data = {
-                    'lang': row[0],
-                    'order_type': row[1],
-                    'delivery_info': row[2],
-                    'delivery_fee': row[3],
-                    'customer_name': row[4],
-                    'customer_phone': row[5],
-                    'customer_address': row[6],
-                    'scheduled_for': row[7],
-                    'table_number': row[8]
+                    'lang': row[0], 'order_type': row[1], 'delivery_info': row[2],
+                    'delivery_fee': row[3], 'customer_name': row[4], 'customer_phone': row[5],
+                    'customer_address': row[6], 'scheduled_for': row[7], 'table_number': row[8]
                 }
-                final_lang = db_old_data['lang'] # 保持語系一致
+                final_lang = db_old_data['lang']
 
-        # --- D. 處理外送與客戶資訊 (優先級：Form > Session > DB Old Order) ---
+        # --- D. 處理外送與客戶資訊 ---
         sess_data = session.get('delivery_data', {})
         sess_info = session.get('delivery_info', {})
 
@@ -162,7 +207,6 @@ def process_order_submission(request, order_type_override=None):
         delivery_info_json_str = None
         delivery_fee = 0
         
-        # 決定是否執行外送邏輯
         should_process_as_delivery = False
         if order_type == 'delivery':
             should_process_as_delivery = True
@@ -171,8 +215,6 @@ def process_order_submission(request, order_type_override=None):
 
         if should_process_as_delivery:
             order_type = 'delivery'
-            
-            # 運費計算 (Form > Session > DB Old Order)
             sess_fee = sess_info.get('shipping_fee')
             form_fee = request.form.get('delivery_fee')
             
@@ -185,8 +227,6 @@ def process_order_submission(request, order_type_override=None):
             else:
                 delivery_fee = 0
 
-            # 建立外送資訊 JSON
-            # 如果是編輯且沒有新 Session 資料，則嘗試解析舊的 delivery_info JSON
             old_delivery_info = {}
             if db_old_data.get('delivery_info'):
                 try:
@@ -206,13 +246,11 @@ def process_order_submission(request, order_type_override=None):
             delivery_info_json_str = json.dumps(delivery_info_dict, ensure_ascii=False)
             table_number = "外送"
         else:
-            # 內用 / 外帶
             delivery_fee = 0
             if raw_table_number and raw_table_number.strip():
                 table_number = raw_table_number
                 order_type = 'dine_in'
             elif db_old_data.get('table_number') and db_old_data['table_number'] not in ["外送", "外帶"]:
-                # 如果是編輯中且沒填桌號，沿用舊桌號
                 table_number = db_old_data['table_number']
                 order_type = 'dine_in'
             else:
@@ -271,13 +309,11 @@ def process_order_submission(request, order_type_override=None):
         res = cur.fetchone()
         oid = res[0]
         
-        # 如果是修改舊單，將舊單標記為取消
         if old_order_id:
             cur.execute("UPDATE orders SET status='Cancelled' WHERE id=%s", (old_order_id,))
         
         conn.commit()
         
-        # 如果是修改訂單的 pop-up 視窗
         if old_order_id: 
             return f"<script>localStorage.removeItem('cart_cache'); alert('訂單已更新'); if(window.opener) window.opener.location.reload(); window.close();</script>"
         
@@ -302,37 +338,30 @@ def process_order_submission(request, order_type_override=None):
 def index():
     table_num = request.args.get('table', '')
     
-    # 🟢 關鍵修正 1：直接讀取全部的 settings，不再限縮 key 的範圍
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT key, value FROM settings") # 👈 撈出資料表所有的設定值
+    cur.execute("SELECT key, value FROM settings") 
     settings = dict(cur.fetchall())
     conn.close()
     
-    # 預設為 '1' (開啟)
     shop_open = settings.get('shop_open', '1') == '1'
     delivery_enabled = settings.get('delivery_enabled', '1') == '1'
 
-    # 【更新】強制清除所有 Session，徹底避免舊資料與狀態混亂
     session.clear()
     
-    # 🟢 關鍵修正 2：在 return 時把完整的 settings 字典打包傳送過去！
     return render_template('index.html', 
                            table_num=table_num, 
                            shop_open=shop_open, 
                            delivery_enabled=delivery_enabled,
-                           settings=settings) # 👈 補上這行
+                           settings=settings)
 
 
 # --- 內用/外帶 路由 ---
 @menu_bp.route('/menu', methods=['GET', 'POST'])
 def menu():
-    # 提交訂單
     if request.method == 'POST':
-        # 這裡傳入 'dine_in'，會觸發上述 process_order_submission 的修正邏輯
         return process_order_submission(request, order_type_override='dine_in')
 
-    # 顯示菜單
     display_lang = request.args.get('lang', 'zh')
     t_all = load_translations()
     t = t_all.get(display_lang, t_all['zh'])
@@ -342,7 +371,6 @@ def menu():
     preload_cart = "null" 
     order_lang = display_lang 
 
-    # 如果是編輯訂單模式
     if edit_oid:
         conn = get_db_connection()
         cur = conn.cursor()
@@ -367,14 +395,11 @@ def menu():
 # --- 外送 專用路由 ---
 @menu_bp.route('/delivery', methods=['GET', 'POST'])
 def delivery_menu():
-    # 提交訂單
     if request.method == 'POST':
         return process_order_submission(request, order_type_override='delivery')
     
     settings, products = get_menu_data()
     
-    # 【關鍵檢查】如果後台關閉了外送功能，將使用者導回首頁
-    # 檢查 settings 中的 'delivery_enabled'
     if settings.get('delivery_enabled', '1') != '1':
         return redirect(url_for('menu.index'))
 
@@ -382,7 +407,6 @@ def delivery_menu():
     t_all = load_translations()
     t = t_all.get(display_lang, t_all['zh'])
     
-    # 讀取 Session 中的資料 (由外送檢查頁面寫入)，確保傳給 HTML 回填表單
     session_delivery = session.get('delivery_data', {})
     
     return render_template('menu.html', 
@@ -394,19 +418,15 @@ def delivery_menu():
                            session_delivery=session_delivery)
 
 
-# --- 下單成功頁面 ---
+# --- 下單成功頁面 (包含全部邏輯與 HTML 輸出) ---
 @menu_bp.route('/success')
 def order_success():
-    # 🟢 關鍵修正 1：在函式一開頭，呼叫你寫好的共用函式取得全店 settings 設定字典
-    # 使用 _ 代表我們在這裡不需要產品清單，只需要 settings
+    # 讀取全店 settings 設定
     settings, _ = get_menu_data()  
 
-    # 取得 URL 參數
     oid = request.args.get('order_id')
     lang = request.args.get('lang', 'zh')
     
-    # 載入翻譯檔，預設使用中文
-    # (假設環境中已有 load_translations() 函式)
     translations = load_translations()
     t = translations.get(lang, translations['zh'])
     
@@ -425,109 +445,39 @@ def order_success():
     """, (oid,))
     row = cur.fetchone()
     
+    if not row:
+        cur.close()
+        conn.close()
+        return "Order Not Found / 找不到此訂單", 404
+        
     # ==========================================
     # 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
     # ==========================================
-
-
-
-
-
-# 1. 定義解析客製化選項的函式（與主流程分離）
-def parse_advanced_opts(opt_str):
-    if not opt_str: 
-        return []
+    cur.execute("""
+        SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
+        FROM products
+    """)
+    rows = cur.fetchall()
+    product_map = {}
+    
+    for p_row in rows:
+        p_name = p_row[0]
+        product_map[p_name] = {
+            'zh': parse_advanced_opts(p_row[1]),
+            'en': parse_advanced_opts(p_row[2]),
+            'jp': parse_advanced_opts(p_row[3]),
+            'kr': parse_advanced_opts(p_row[4])
+        }
         
-    results = []
-    
-    # 使用 Regex 切割最外層。
-    # 邏輯：只有在「括號/大括號外面」的逗號才拿來當作分隔點。
-    # 這可以完美保護像 3(A, B, C, D) 這種內部含有逗號的群組。
-    pattern = r',(?![^(]*\))(?![^{]*\})'
-    raw_groups = re.split(pattern, opt_str)
-    
-    for group in raw_groups:
-        group = group.strip()
-        if not group:
-            continue
-            
-        # 情況 A：處理 Checkbox 群組，例如 "2(不要蔥油, 少蔥油)" 或 "3(...)"
-        # 匹配開頭可能有數字，接著是 (...) 的結構
-        chk_match = re.match(r'^(\d*)\((.*?)\)$', group)
-        if chk_match:
-            num_str, inner_str = chk_match.groups()
-            # 提取限制數量：如果有數字就轉型，沒有數字（例如純括號）預設為 1
-            max_select = int(num_str) if num_str else 1
-            options = [o.strip() for o in inner_str.split(',') if o.strip()]
-            
-            results.append({
-                "type": "checkbox",
-                "max_select": max_select,
-                "required": False,
-                "options": options
-            })
-            continue
+    cur.close()
+    conn.close()
 
-        # 情況 B：處理 Radiobox 群組，例如 "{不要韭菜, 少韭菜, 韭菜多}"
-        # 匹配 {...} 的結構
-        rad_match = re.match(r'^\{(.*?)\}$', group)
-        if rad_match:
-            inner_str = rad_match.group(1)
-            options = [o.strip() for o in inner_str.split(',') if o.strip()]
-            
-            results.append({
-                "type": "radio",
-                "max_select": 1,
-                "required": True,
-                "options": options
-            })
-            continue
-
-        # 情況 C：處理一般單一選項，例如 "加大："
-        # 既沒有括號也沒有大括號，就是純文字
-        results.append({
-            "type": "checkbox",
-            "max_select": 1,
-            "required": False,
-            "options": [group]
-        })
-                
-    return results
-
-# 2. 讀取所有產品的客製化選項 (主流程，注意縮排不可在 def 內部)
-# 假設 cur 和 conn 已在外部正確建立
-cur.execute("""
-    SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
-    FROM products
-""")
-product_map = {}
-
-# 讀取資料庫結果
-rows = cur.fetchall()
-for p_row in rows:
-    p_name = p_row[0]
-    
-    product_map[p_name] = {
-        'zh': parse_advanced_opts(p_row[1]),
-        'en': parse_advanced_opts(p_row[2]),
-        'jp': parse_advanced_opts(p_row[3]),
-        'kr': parse_advanced_opts(p_row[4])
-    }
-    
-cur.close()
-conn.close()
-
-# 3. 檢查是否成功讀取到產品資料
-if not rows: 
-    # 如果是在 Flask 路由中，這裡可以 return
-    print("Products Not Found")
-    
     # ==========================================
     # 3. 解構訂單資料與邏輯判斷
     # ==========================================
     seq, json_str, total, created_at, order_type, delivery_info_json, delivery_fee, c_name, c_phone, c_addr, c_time, table_num_db = row
     
-    # 判斷是否為外送 (根據 type 欄位或 table_number 是否為 '外送')
+    # 判斷是否為外送
     type_is_delivery = (str(order_type or '').strip().lower() == 'delivery')
     table_is_delivery = (str(table_num_db or '').strip() == '外送')
     is_delivery = type_is_delivery or table_is_delivery
@@ -540,7 +490,7 @@ if not rows:
         except:
             delivery_info_dict = {}
 
-    # 優先使用實體欄位資料，若無則降級讀取 JSON 內的資料
+    # 優先使用實體欄位資料，若無則讀取 JSON 內的資料
     d_name = c_name if c_name else delivery_info_dict.get('name', 'N/A')
     d_phone = c_phone if c_phone else delivery_info_dict.get('phone', 'N/A')
     d_addr = c_addr if c_addr else delivery_info_dict.get('address', 'N/A')
@@ -554,31 +504,37 @@ if not rows:
         d_scheduled = str(delivery_info_dict.get('scheduled_for'))
         
     if d_scheduled and len(d_scheduled) > 16:
-        d_scheduled = d_scheduled[:16] # 截斷秒數，只顯示到分
+        d_scheduled = d_scheduled[:16] # 截斷秒數
 
     # ==========================================
     # 4. 選項動態翻譯函式
     # ==========================================
     def translate_option(p_name, opt_str, target_lang):
-        # 若商品不在字典中，回傳原字串
         if p_name not in product_map:
             return opt_str
         
         p_data = product_map[p_name]
         found_idx = -1
         
-        # 尋找該選項在哪個語言列表中的索引位置
+        # 尋找客製化選項位於哪一個群組
         for l in ['zh', 'en', 'jp', 'kr']:
-            if opt_str in p_data[l]:
-                found_idx = p_data[l].index(opt_str)
+            # 注意：p_data[l] 內結構為 dict 陣列，需撈出內部 options 比對文字
+            for group_idx, group in enumerate(p_data[l]):
+                if opt_str in group.get('options', []):
+                    found_idx = group['options'].index(opt_str)
+                    target_group_idx = group_idx
+                    break
+            if found_idx != -1:
                 break
         
-        # 若有找到，嘗試去目標語言列表對應位置取值
+        # 若有找到，去目標語言對應群組的位置取值
         if found_idx != -1:
-            target_list = p_data.get(target_lang, [])
-            if found_idx < len(target_list):
-                return target_list[found_idx]
-                
+            target_groups = p_data.get(target_lang, [])
+            if target_group_idx < len(target_groups):
+                t_options = target_groups[target_group_idx].get('options', [])
+                if found_idx < len(t_options):
+                    return t_options[found_idx]
+                    
         return opt_str
 
     # ==========================================
@@ -588,15 +544,10 @@ if not rows:
     items_html = ""
     
     for i in items:
-        # 計算單品總價
         row_total = int(float(i['unit_price'])) * int(float(i['qty']))
-        
-        # 取得基準的中文商品名稱 (用作查字典的 Key)
         name_zh = i.get('name_zh', i.get('name', 'Product'))
-        # 顯示用的商品名稱 (依據客人的語言)
         d_name_prod = i.get(f'name_{lang}', name_zh)
         
-        # 抓取選項並動態翻譯
         raw_ops = i.get(f'options_{lang}') or i.get('options_zh') or i.get('options') or []
         if isinstance(raw_ops, str):
             raw_ops = [raw_ops]
@@ -605,10 +556,8 @@ if not rows:
         for opt in raw_ops:
             translated_ops.append(translate_option(name_zh, str(opt).strip(), lang))
             
-        # 選項 HTML 組合
         opt_str = f"<div class='item-options'>└ {', '.join(translated_ops)}</div>" if translated_ops else ""
         
-        # 單個商品項目的 HTML
         items_html += f"""
         <div class="item-row">
             <div class="item-info">
@@ -619,13 +568,11 @@ if not rows:
         </div>
         """
     
-    # 初始化外送相關變數
     delivery_html = ""
     fee_row_html = ""
     status_msg = ""
     wait_msg = ""
 
-    # 判斷是否顯示外送資訊
     if is_delivery:
         fee_label = "Delivery Fee" if lang == 'en' else "運費"
         fee_row_html = f"""
@@ -653,21 +600,15 @@ if not rows:
         status_msg = t.get('pay_at_counter', '請至櫃檯結帳')
         wait_msg = t.get('kitchen_prep', 'Kitchen is preparing your meal.<br>廚房正在為您準備餐點。')
 
-    # 時間轉換 (加 8 小時轉為台灣時間)
     tw_time = created_at + timedelta(hours=8)
     time_str = tw_time.strftime('%Y-%m-%d %H:%M:%S')
 
-    # 返回按鈕連結
     back_link = url_for('menu.index', lang=lang)
     back_text = "Back to Menu / 返回菜單"
 
-  # ==========================================
+    # ==========================================
     # 6. 回傳最終組合的 HTML (使用 CSS 變數與乾淨的類別命名)
     # ==========================================
-    # 注意：f-string 內的 CSS 若用到大括號，需寫成雙大括號 {{ }}
-    # 🟢 確保你在這個路由函式裡有先拿到 settings 字典
-# settings = get_delivery_settings() 
-
     return f"""
     <!DOCTYPE html>
     <html lang="{lang}">
@@ -700,14 +641,11 @@ if not rows:
                 -webkit-font-smoothing: antialiased;
             }}
 
-            /* 🟢 修正處：CSS 大括號雙寫，並直接用 Python f-string 帶入圖片網址 */
             body::before {{
                 content: "";
                 position: fixed;
                 top: 0; left: 0; right: 0; bottom: 0;
-                
                 background: url('{settings.get("shop_logo_url", "")}') no-repeat center center;
-                
                 background-size: contain; 
                 opacity: 0.6; 
                 z-index: -1; 
