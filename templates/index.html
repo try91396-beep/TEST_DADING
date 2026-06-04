@@ -226,11 +226,23 @@
                 {% else %}
                     {% set panda_url = settings.get('shop_panda_url', '') %}
                     {% if 'foodpanda' in panda_url.lower() %}
-                        <a href="{{ panda_url }}">Foodpanda 外送</a>
+                        <a href="{{ panda_url }}" 
+                           class="delivery-btn delivery-internal" 
+                           style="background-color: #E11A5F; border-color: #E11A5F; color: white;">
+                           🐼 Foodpanda 外送
+                        </a>
                     {% elif 'ubereats' in panda_url.lower() %}
-                        <a href="{{ panda_url }}">Uber Eats 外送</a>
+                        <a href="{{ panda_url }}" 
+                           class="delivery-btn delivery-internal" 
+                           style="background-color: #06C167; border-color: #06C167; color: white;">
+                           🛵 Uber Eats 外送
+                        </a>
                     {% else %}
-                        <a href="{{ panda_url }}">第三方外送平台</a>
+                        <a href="{{ panda_url }}" 
+                           class="delivery-btn delivery-internal" 
+                           style="background-color: #555555; border-color: #555555; color: white;">
+                           📦 第三方外送平台
+                        </a>
                     {% endif %}
                 {% endif %}
             </div>
