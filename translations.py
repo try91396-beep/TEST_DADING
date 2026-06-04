@@ -97,7 +97,7 @@ def load_translations():
             "edit_options": "オプション変更",
             "save_changes": "💾 変更を保存",
             "single_choice": "単一選択",
-            "max_choices": "複数選択可能,"
+            "max_choices": "複数選択可能",
             "items": "アイテム"
         },
         "kr": {
