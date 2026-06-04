@@ -575,8 +575,10 @@ function openOpt(productId, cartIndex = -1) {
         gTitle.style.color = '#4B5563';
         gTitle.style.marginBottom = '8px';
         
-        let typeHint = group.type === 'radio' ? ' (單選)' : (group.max_select > 1 ? ` (最多選 ${group.max_select} 項)` : '');
-        gTitle.innerText = `選項群組 ${gIdx + 1}${typeHint}`;
+        let typeHint = group.type === 'radio' 
+          ? ` (${texts['single_choice']})` 
+          : (group.max_select > 1 ? ` (${texts['max_choices']} ${group.max_select} ${texts['items']})` : '');
+        gTitle.innerText = `${typeHint}`;
         gContainer.appendChild(gTitle);
         
         // 放置標籤的 Flex 容器（承襲你原本的排版）
