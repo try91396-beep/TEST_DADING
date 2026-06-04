@@ -429,30 +429,36 @@ def order_success():
     # 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
     # ==========================================
 
-    
 
-# ==========================================
-# 1. 定義解析客製化選項的函式（移至最上方）
-# ==========================================
+
+
+
+# 1. 定義解析客製化選項的函式（與主流程分離）
 def parse_advanced_opts(opt_str):
     if not opt_str: 
         return []
         
     results = []
     
-    # 修正後的 Pattern：利用 | 區隔，並確保 plain 不會誤抓逗號或空白
-    pattern = r'(\d*\(.*?\))|(\{.*?\})|([^,\s][^,]*[^,\s]|[^\s,])'
-    matches = re.findall(pattern, opt_str)
+    # 使用 Regex 切割最外層。
+    # 邏輯：只有在「括號/大括號外面」的逗號才拿來當作分隔點。
+    # 這可以完美保護像 3(A, B, C, D) 這種內部含有逗號的群組。
+    pattern = r',(?![^(]*\))(?![^{]*\})'
+    raw_groups = re.split(pattern, opt_str)
     
-    for chk, rad, plain in matches:
-        # 處理 Checkbox 群組，例如 "2(不要蔥油,少蔥油)"
-        if chk:
-            chk = chk.strip()
-            inner = re.search(r'\((.*?)\)', chk).group(1)
-            options = [o.strip() for o in inner.split(',') if o.strip()]
+    for group in raw_groups:
+        group = group.strip()
+        if not group:
+            continue
             
-            num_match = re.match(r'^(\d+)', chk)
-            max_select = int(num_match.group(1)) if num_match else 1
+        # 情況 A：處理 Checkbox 群組，例如 "2(不要蔥油, 少蔥油)" 或 "3(...)"
+        # 匹配開頭可能有數字，接著是 (...) 的結構
+        chk_match = re.match(r'^(\d*)\((.*?)\)$', group)
+        if chk_match:
+            num_str, inner_str = chk_match.groups()
+            # 提取限制數量：如果有數字就轉型，沒有數字（例如純括號）預設為 1
+            max_select = int(num_str) if num_str else 1
+            options = [o.strip() for o in inner_str.split(',') if o.strip()]
             
             results.append({
                 "type": "checkbox",
@@ -460,12 +466,14 @@ def parse_advanced_opts(opt_str):
                 "required": False,
                 "options": options
             })
-            
-        # 處理 Radiobox 群組，例如 "{不要韭菜,少韭菜}"
-        elif rad:
-            rad = rad.strip()
-            inner = re.search(r'\{(.*?)\}', rad).group(1)
-            options = [o.strip() for o in inner.split(',') if o.strip()]
+            continue
+
+        # 情況 B：處理 Radiobox 群組，例如 "{不要韭菜, 少韭菜, 韭菜多}"
+        # 匹配 {...} 的結構
+        rad_match = re.match(r'^\{(.*?)\}$', group)
+        if rad_match:
+            inner_str = rad_match.group(1)
+            options = [o.strip() for o in inner_str.split(',') if o.strip()]
             
             results.append({
                 "type": "radio",
@@ -473,47 +481,46 @@ def parse_advanced_opts(opt_str):
                 "required": True,
                 "options": options
             })
-            
-        # 處理一般單一選項，例如 "加大：+20"
-        elif plain:
-            plain_txt = plain.strip()
-            if plain_txt:  
-                results.append({
-                    "type": "checkbox",
-                    "max_select": 1,
-                    "required": False,
-                    "options": [plain_txt]
-                })
+            continue
+
+        # 情況 C：處理一般單一選項，例如 "加大："
+        # 既沒有括號也沒有大括號，就是純文字
+        results.append({
+            "type": "checkbox",
+            "max_select": 1,
+            "required": False,
+            "options": [group]
+        })
                 
     return results
 
-    # 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
-    cur.execute("""
-        SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
-        FROM products
-    """)
-    product_map = {}
+# 2. 讀取所有產品的客製化選項 (主流程，注意縮排不可在 def 內部)
+# 假設 cur 和 conn 已在外部正確建立
+cur.execute("""
+    SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
+    FROM products
+""")
+product_map = {}
+
+# 讀取資料庫結果
+rows = cur.fetchall()
+for p_row in rows:
+    p_name = p_row[0]
     
-    # 讀取資料庫結果
-    rows = cur.fetchall()
-    for p_row in rows:
-        p_name = p_row[0]
-        
-        product_map[p_name] = {
-            'zh': parse_advanced_opts(p_row[1]),
-            'en': parse_advanced_opts(p_row[2]),
-            'jp': parse_advanced_opts(p_row[3]),
-            'kr': parse_advanced_opts(p_row[4])
-        }
-        
-    cur.close()
-    conn.close()
+    product_map[p_name] = {
+        'zh': parse_advanced_opts(p_row[1]),
+        'en': parse_advanced_opts(p_row[2]),
+        'jp': parse_advanced_opts(p_row[3]),
+        'kr': parse_advanced_opts(p_row[4])
+    }
     
-    # 3. 檢查訂單狀態（原程式碼末尾遺留部分）
-    # 注意：此處的 `row` 變數在原本提供的程式中未被定義，
-    # 猜測你是從某個「查詢特定訂單」的路由抓過來的。這裡修正為示意：
-    if not rows: 
-        return "Products/Order Not Found", 404
+cur.close()
+conn.close()
+
+# 3. 檢查是否成功讀取到產品資料
+if not rows: 
+    # 如果是在 Flask 路由中，這裡可以 return
+    print("Products Not Found")
     
     # ==========================================
     # 3. 解構訂單資料與邏輯判斷
