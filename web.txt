@@ -1,0 +1,16 @@
+綁訂桌號後進入語言選擇
+https://ding-dong-tipi.onrender.com/?table=4
+綁定中文及桌號
+https://ding-dong-tipi.onrender.com/menu?lang=zh&table=1
+綁定英文及桌號
+https://ding-dong-tipi.onrender.com/menu?lang=en&table=2
+綁定日文及桌號
+https://ding-dong-tipi.onrender.com/menu?lang=jp&table=外帶
+綁定韓文及桌號
+https://ding-dong-tipi.onrender.com/menu?lang=kr&table=外桌1
+廚房端
+https://ding-dong-tipi.onrender.com/kitchen
+後臺管理
+https://ding-dong-tipi.onrender.com/admin
+資料更新
+https://ding-dong-tipi.onrender.com/init_db

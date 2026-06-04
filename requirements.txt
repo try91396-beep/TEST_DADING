@@ -1,0 +1,11 @@
+psycopg2-binary
+python-dotenv
+flask
+gunicorn
+requests
+pandas
+openpyxl
+resend
+geopy
+haversine
+bcrypt==4.1.2
