@@ -487,33 +487,33 @@ def parse_advanced_opts(opt_str):
                 
     return results
 
-# 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
-cur.execute("""
-    SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
-    FROM products
-""")
-product_map = {}
-
-# 讀取資料庫結果
-rows = cur.fetchall()
-for p_row in rows:
-    p_name = p_row[0]
+    # 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
+    cur.execute("""
+        SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
+        FROM products
+    """)
+    product_map = {}
     
-    product_map[p_name] = {
-        'zh': parse_advanced_opts(p_row[1]),
-        'en': parse_advanced_opts(p_row[2]),
-        'jp': parse_advanced_opts(p_row[3]),
-        'kr': parse_advanced_opts(p_row[4])
-    }
+    # 讀取資料庫結果
+    rows = cur.fetchall()
+    for p_row in rows:
+        p_name = p_row[0]
+        
+        product_map[p_name] = {
+            'zh': parse_advanced_opts(p_row[1]),
+            'en': parse_advanced_opts(p_row[2]),
+            'jp': parse_advanced_opts(p_row[3]),
+            'kr': parse_advanced_opts(p_row[4])
+        }
+        
+    cur.close()
+    conn.close()
     
-cur.close()
-conn.close()
-
-# 3. 檢查訂單狀態（原程式碼末尾遺留部分）
-# 注意：此處的 `row` 變數在原本提供的程式中未被定義，
-# 猜測你是從某個「查詢特定訂單」的路由抓過來的。這裡修正為示意：
-if not rows: 
-    return "Products/Order Not Found", 404
+    # 3. 檢查訂單狀態（原程式碼末尾遺留部分）
+    # 注意：此處的 `row` 變數在原本提供的程式中未被定義，
+    # 猜測你是從某個「查詢特定訂單」的路由抓過來的。這裡修正為示意：
+    if not rows: 
+        return "Products/Order Not Found", 404
     
     # ==========================================
     # 3. 解構訂單資料與邏輯判斷
