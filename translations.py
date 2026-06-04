@@ -32,6 +32,9 @@ def load_translations():
             "ai_note": "翻譯由 AI 提供",
             "edit_options": "重選選項",
             "save_changes": "💾 儲存修改"
+            "single_choice": "單選"
+            "max_choices": "最多選"
+            "items": "項"
         },
         "en": {
             "title": "Order", 
@@ -61,6 +64,9 @@ def load_translations():
             "ai_note": "Translated by AI",
             "edit_options": "Edit Options",
             "save_changes": "💾 Save Changes"
+            "single_choice": "Single Choice"
+            "max_choices": "Max Choices"
+            "items": "Items"
         },
         "jp": {
             "title": "注文", 
@@ -90,6 +96,9 @@ def load_translations():
             "ai_note": "AIによる翻訳",
             "edit_options": "オプション変更",
             "save_changes": "💾 変更を保存"
+            "single_choice": "単一選択"
+            "max_choices": "複数選択可能"
+            "items": "アイテム"
         },
         "kr": {
             "title": "주문", 
@@ -119,5 +128,8 @@ def load_translations():
             "ai_note": "AI 번역",
             "edit_options": "옵션 변경",
             "save_changes": "💾 변경사항 저장"
+            "single_choice": "단일 선택"
+            "max_choices": "최대 선택"
+            "items": "품목"
         }
     }
