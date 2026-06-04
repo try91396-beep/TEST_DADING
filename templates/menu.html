@@ -643,7 +643,7 @@ function openOpt(productId, cartIndex = -1) {
                             selectedOptKeys.push(key);
                             d.classList.add('sel');
                         } else {
-                            alert(`${texts['max_choices']} ${group.max_select} ${texts['items']}！`);
+                            alert(`${"{{ texts['max_choices'] }}"} ${group.max_select} ${"{{ texts['items'] }}"}！`);
                         }
                     }
                 }
