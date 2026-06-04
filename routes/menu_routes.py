@@ -425,14 +425,14 @@ def order_success():
     """, (oid,))
     row = cur.fetchone()
     
-# ==========================================
-# 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
-# ==========================================
-cur.execute("""
-    SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
-    FROM products
-""")
-product_map = {}
+    # ==========================================
+    # 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
+    # ==========================================
+    cur.execute("""
+        SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
+        FROM products
+    """)
+    product_map = {}
 
 def parse_advanced_opts(opt_str):
     if not opt_str: 
