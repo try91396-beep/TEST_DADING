@@ -533,93 +533,224 @@
         }
     }
 
-    // 打開商品選項彈窗
-    function openOpt(productId, cartIndex = -1) {
-        cur = P.find(x => x.id == productId); 
-        if(!cur) return;
-        
-        editIndex = cartIndex;
-        selectedOptIndices = []; 
-        addP = 0;
-        
-        document.getElementById('m-name').innerText = (editIndex > -1 ? "✏️ " : "") + (cur['name_' + CUR_LANG] || cur.name_zh);
-        document.getElementById('m-confirm-btn').innerText = editIndex > -1 ? (T.save_changes || "💾 儲存修改") : T.modal_add_cart;
-        
-        let area = document.getElementById('m-opts'); 
-        area.innerHTML = "";
-        
-        let opts = cur['custom_options_' + CUR_LANG] || cur.custom_options_zh;
-        if (typeof opts === 'string') {
-            opts = opts.split(',').filter(x => x.trim() !== '');
-        } else if (!Array.isArray(opts)) {
-            opts = [];
-        }
+    // 全域變數宣告更新（將原本的 flat index 陣列改為 group_option 的 key 陣列）
+let selectedOptKeys = []; 
 
-        let existingOpts = editIndex > -1 ? C[editIndex].options_zh : [];
+// 打開商品選項彈窗
+function openOpt(productId, cartIndex = -1) {
+    cur = P.find(x => x.id == productId); 
+    if(!cur) return;
+    
+    editIndex = cartIndex;
+    selectedOptKeys = []; // 儲存格式為 "群組索引_選項索引"，例如 ["0_0", "1_1"]
+    addP = 0;
+    
+    document.getElementById('m-name').innerText = (editIndex > -1 ? "✏️ " : "") + (cur['name_' + CUR_LANG] || cur.name_zh);
+    document.getElementById('m-confirm-btn').innerText = editIndex > -1 ? (T.save_changes || "💾 儲存修改") : T.modal_add_cart;
+    
+    let area = document.getElementById('m-opts'); 
+    area.innerHTML = "";
+    
+    // 1. 抓取當前語系的客製化群組物件陣列，若非陣列則初始化
+    let optsGroups = cur['custom_options_' + CUR_LANG] || cur.custom_options_zh;
+    if (!Array.isArray(optsGroups)) optsGroups = [];
+
+    // 同時抓取中文群組，用於在「編輯模式」時比對購物車內已存在的中文選項名稱
+    let zhGroups = cur.custom_options_zh || [];
+    let existingOpts = editIndex > -1 ? (C[editIndex].options_zh || []) : [];
+    
+    // 2. 開始依據「群組」分層渲染
+    optsGroups.forEach((group, gIdx) => {
+        // 建立群組外殼容器
+        let gContainer = document.createElement('div');
+        gContainer.className = 'opt-group-box';
+        gContainer.style.marginBottom = '16px';
+        gContainer.style.width = '100%';
         
-        opts.forEach((o, index) => {
+        // 建立群組標題（提示使用者此區塊是單選還是多選上限）
+        let gTitle = document.createElement('div');
+        gTitle.className = 'opt-group-title';
+        gTitle.style.fontWeight = 'bold';
+        gTitle.style.fontSize = '0.9em';
+        gTitle.style.color = '#4B5563';
+        gTitle.style.marginBottom = '8px';
+        
+        let typeHint = group.type === 'radio' ? ' (單選)' : (group.max_select > 1 ? ` (最多選 ${group.max_select} 項)` : '');
+        gTitle.innerText = `選項群組 ${gIdx + 1}${typeHint}`;
+        gContainer.appendChild(gTitle);
+        
+        // 放置標籤的 Flex 容器（承襲你原本的排版）
+        let tagsFlex = document.createElement('div');
+        tagsFlex.style.display = 'flex';
+        tagsFlex.style.flexWrap = 'wrap';
+        tagsFlex.style.gap = '8px';
+        
+        // 3. 渲染群組內部的各個標籤
+        group.options.forEach((o, oIdx) => {
             let parts = o.split(/[+]/); 
-            let n = parts[0].trim(), p = parts.length > 1 ? parseInt(parts[1]) : 0;
+            let n = parts[0].trim();
+            let p = parts.length > 1 ? parseInt(parts[1]) : 0;
+            
+            // 編輯模式回填：透過中文原始名稱進行交叉比對
+            let isSelected = false;
+            if (editIndex > -1 && zhGroups[gIdx] && zhGroups[gIdx].options[oIdx]) {
+                let zhOptRaw = zhGroups[gIdx].options[oIdx];
+                let zhName = zhOptRaw.split(/[+]/)[0].trim();
+                if (existingOpts.includes(zhName)) {
+                    isSelected = true;
+                }
+            }
+            
             let d = document.createElement('div'); 
             d.className = 'opt-tag';
             d.innerText = n + (p ? ` (+$${p})` : '');
             
-            if(editIndex > -1 && existingOpts.includes(n)) { 
-                selectedOptIndices.push(index); 
-                addP += p; 
+            if (isSelected) {
+                selectedOptKeys.push(`${gIdx}_${oIdx}`);
                 d.classList.add('sel');
             }
             
+            // 4. 點擊事件：核心限制邏輯在此處觸發！
             d.onclick = () => {
-                if(selectedOptIndices.includes(index)) {
-                    selectedOptIndices = selectedOptIndices.filter(i => i != index); 
-                    addP -= p; 
-                    d.classList.remove('sel');
-                } else {
-                    selectedOptIndices.push(index); 
-                    addP += p; 
+                let key = `${gIdx}_${oIdx}`;
+                let isCurrentlySel = selectedOptKeys.includes(key);
+                
+                if (group.type === 'radio') {
+                    // 【RADIOBOX 邏輯】清除同群組其他選取項，重新單選
+                    selectedOptKeys = selectedOptKeys.filter(k => !k.startsWith(`${gIdx}_`));
+                    tagsFlex.querySelectorAll('.opt-tag').forEach(tag => tag.classList.remove('sel'));
+                    
+                    selectedOptKeys.push(key);
                     d.classList.add('sel');
+                } else {
+                    // 【CHECKBOX 邏輯】
+                    if (isCurrentlySel) {
+                        // 取消選取
+                        selectedOptKeys = selectedOptKeys.filter(k => k !== key);
+                        d.classList.remove('sel');
+                    } else {
+                        // 檢查是否超過該群組最大上限
+                        let currentGroupCount = selectedOptKeys.filter(k => k.startsWith(`${gIdx}_`)).length;
+                        if (currentGroupCount < group.max_select) {
+                            selectedOptKeys.push(key);
+                            d.classList.add('sel');
+                        } else if (group.max_select === 1) {
+                            // 如果上限是1的複選框，體驗上直接自動切換
+                            selectedOptKeys = selectedOptKeys.filter(k => !k.startsWith(`${gIdx}_`));
+                            tagsFlex.querySelectorAll('.opt-tag').forEach(tag => tag.classList.remove('sel'));
+                            selectedOptKeys.push(key);
+                            d.classList.add('sel');
+                        } else {
+                            alert(`此群組最多只能選擇 ${group.max_select} 項！`);
+                        }
+                    }
                 }
+                // 每點擊一次，即時動態重新計算加價
+                recalcAddP(optsGroups);
             };
-            area.appendChild(d);
+            
+            tagsFlex.appendChild(d);
         });
         
-        document.getElementById('m-q').value = editIndex > -1 ? C[editIndex].qty : 1;
-        document.getElementById('opt-m').style.display = 'flex';
-        document.getElementById('cart-m').style.display = 'none';
+        gContainer.appendChild(tagsFlex);
+        area.appendChild(gContainer);
+    });
+    
+    // 計算加價金額的內部輔助函式
+    function recalcAddP(groups) {
+        addP = 0;
+        selectedOptKeys.forEach(key => {
+            let [gIdx, oIdx] = key.split('_').map(Number);
+            if (groups[gIdx] && groups[gIdx].options[oIdx]) {
+                let parts = groups[gIdx].options[oIdx].split(/[+]/);
+                addP += parts.length > 1 ? parseInt(parts[1]) : 0;
+            }
+        });
+    }
+    recalcAddP(optsGroups); // 首次開啟先計算一次
+    
+    document.getElementById('m-q').value = editIndex > -1 ? C[editIndex].qty : 1;
+    document.getElementById('opt-m').style.display = 'flex';
+    document.getElementById('cart-m').style.display = 'none';
+}
+
+function cq(n) {
+    let input = document.getElementById('m-q'); 
+    let val = parseInt(input.value) || 1;
+    if(val + n >= 1) input.value = val + n;
+}
+
+// 加入購物車
+function addC() {
+    let q = parseInt(document.getElementById('m-q').value) || 1;
+    
+    // 1. 防呆驗證：確認所有必選的 Radio 群組都有勾選項目
+    let optsGroups = cur['custom_options_' + CUR_LANG] || cur.custom_options_zh || [];
+    for (let gIdx = 0; gIdx < optsGroups.length; gIdx++) {
+        if (optsGroups[gIdx].type === 'radio') {
+            let hasSelection = selectedOptKeys.some(k => k.startsWith(`${gIdx}_`));
+            if (!hasSelection) {
+                alert(`請為選單群組 ${gIdx + 1} 挑選一個必要選項！`);
+                return; // 攔截不讓加入購物車
+            }
+        }
     }
 
-    function cq(n) {
-        let input = document.getElementById('m-q'); 
-        let val = parseInt(input.value) || 1;
-        if(val + n >= 1) input.value = val + n;
-    }
+    // 2. 動態提煉各語系的純字串陣列（去除 +20 價格標籤），精準對應多語系
+    let options_zh = [];
+    let options_en = [];
+    let options_jp = [];
+    let options_kr = [];
 
-    // 加入購物車
-    function addC() {
-        let q = parseInt(document.getElementById('m-q').value) || 1;
-        let opts_zh = cur.custom_options_zh || [];
-        if(typeof opts_zh === 'string') opts_zh = opts_zh.split(',').filter(x=>x);
-        let opts_en = cur.custom_options_en || opts_zh;
-        if(typeof opts_en === 'string') opts_en = opts_en.split(',').filter(x=>x);
-
-        let itemData = { 
-            id: cur.id, 
-            name_zh: cur.name_zh, name_en: cur.name_en, name_jp: cur.name_jp, name_kr: cur.name_kr, 
-            unit_price: cur.price + addP, 
-            qty: q, 
-            options_zh: selectedOptIndices.map(idx => (opts_zh[idx] || '').split('+')[0].trim()),
-            options_en: selectedOptIndices.map(idx => (opts_en[idx] || opts_zh[idx] || '').split('+')[0].trim()),
-            category: cur.category_zh, 
-            print_category: cur.print_category 
-        };
+    selectedOptKeys.forEach(key => {
+        let [gIdx, oIdx] = key.split('_').map(Number);
         
-        if(editIndex > -1) C[editIndex] = itemData; else C.push(itemData);
-        document.getElementById('opt-m').style.display = 'none'; 
-        saveCache(); 
-        upd(); 
-        if(editIndex > -1) showCart();
-    }
+        // 中文名稱提煉
+        if (cur.custom_options_zh && cur.custom_options_zh[gIdx] && cur.custom_options_zh[gIdx].options[oIdx]) {
+            options_zh.push(cur.custom_options_zh[gIdx].options[oIdx].split('+')[0].trim());
+        }
+        
+        // 英文名稱提煉 (若無英文客製化則退回中文)
+        let group_en = (cur.custom_options_en || cur.custom_options_zh)[gIdx];
+        if (group_en && group_en.options[oIdx]) {
+            options_en.push(group_en.options[oIdx].split('+')[0].trim());
+        } else if (cur.custom_options_zh[gIdx]) {
+            options_en.push(cur.custom_options_zh[gIdx].options[oIdx].split('+')[0].trim());
+        }
+
+        // 日文名稱提煉
+        let group_jp = (cur.custom_options_jp || cur.custom_options_zh)[gIdx];
+        if (group_jp && group_jp.options[oIdx]) {
+            options_jp.push(group_jp.options[oIdx].split('+')[0].trim());
+        }
+
+        // 韓文名稱提煉
+        let group_kr = (cur.custom_options_kr || cur.custom_options_zh)[gIdx];
+        if (group_kr && group_kr.options[oIdx]) {
+            options_kr.push(group_kr.options[oIdx].split('+')[0].trim());
+        }
+    });
+
+    // 3. 封裝購物車物件
+    let itemData = { 
+        id: cur.id, 
+        name_zh: cur.name_zh, name_en: cur.name_en, name_jp: cur.name_jp, name_kr: cur.name_kr, 
+        unit_price: cur.price + addP, 
+        qty: q, 
+        options_zh: options_zh,
+        options_en: options_en,
+        options_jp: options_jp,
+        options_kr: options_kr,
+        category: cur.category_zh, 
+        print_category: cur.print_category 
+    };
+    
+    if(editIndex > -1) C[editIndex] = itemData; else C.push(itemData);
+    document.getElementById('opt-m').style.display = 'none'; 
+    saveCache(); 
+    upd(); 
+    if(editIndex > -1) showCart();
+}
 
     // 更新購物車總計顯示
     function upd() {
