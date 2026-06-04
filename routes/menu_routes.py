@@ -78,18 +78,12 @@ def get_menu_data():
     settings_rows = cur.fetchall()
     settings = {row[0]: row[1] for row in settings_rows}
     
-    # 確保所有外送與店家基本設定都有安全預設值
     default_settings = {
         'delivery_min_price': '0',
         'shop_name': '我的美味餐廳',
-        'shop_address': '台北市信義區OO路XX號',
-        'shop_phone': '02-12345678',
-        'shop_open_time': '10:30',
-        'shop_close_time': '20:30',
         'shop_logo_url': 'https://example.com/logo.png',
         'shop_open': '1'  
     }
-    
     for key, fallback_value in default_settings.items():
         if key not in settings or not settings[key]:
             settings[key] = fallback_value
@@ -110,11 +104,7 @@ def get_menu_data():
 
     p_list = []
     for p in products:
-        def parse_opts(opt_str, fallback_str=None):
-            if opt_str: return opt_str.split(',')
-            if fallback_str: return fallback_str.split(',')
-            return []
-
+        # 🟢 修正處：丟棄原本沒用的舊 parse_opts，全面改用全域的 parse_advanced_opts
         p_list.append({
             'id': p[0], 
             'name_zh': p[1], 
@@ -128,10 +118,12 @@ def get_menu_data():
             'category_kr': p[17] or p[3],
             'image_url': p[4] or '', 
             'is_available': p[5], 
-            'custom_options_zh': parse_opts(p[6]),
-            'custom_options_en': parse_opts(p[11], p[6]),
-            'custom_options_jp': parse_opts(p[12], p[6]),
-            'custom_options_kr': parse_opts(p[13], p[6]),
+            
+            # 🟢 讓每個語系都透過正規表達式解析器，轉化為帶有 type 與 max_select 的字典結構
+            'custom_options_zh': parse_advanced_opts(p[6]),
+            'custom_options_en': parse_advanced_opts(p[11] if p[11] else p[6]),
+            'custom_options_jp': parse_advanced_opts(p[12] if p[12] else p[6]),
+            'custom_options_kr': parse_advanced_opts(p[13] if p[13] else p[6]),
             'print_category': p[14] or 'Noodle'
         })
     return settings, p_list
