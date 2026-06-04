@@ -643,7 +643,7 @@ function openOpt(productId, cartIndex = -1) {
                             selectedOptKeys.push(key);
                             d.classList.add('sel');
                         } else {
-                            alert(`此群組最多只能選擇 ${group.max_select} 項！`);
+                            alert(`${texts['max_choices']} ${group.max_select} ${texts['items']}！`);
                         }
                     }
                 }
