@@ -576,8 +576,8 @@ function openOpt(productId, cartIndex = -1) {
         gTitle.style.marginBottom = '8px';
         
         let typeHint = group.type === 'radio' 
-          ? ` (${texts['single_choice']})` 
-          : (group.max_select > 1 ? ` (${texts['max_choices']} ${group.max_select} ${texts['items']})` : '');
+          ? " ({{ texts['single_choice'] }})" 
+          : (group.max_select > 1 ? ` (${"{{ texts['max_choices'] }}"} ${group.max_select} ${"{{ texts['items'] }}"})` : '');
         gTitle.innerText = `${typeHint}`;
         gContainer.appendChild(gTitle);
         
