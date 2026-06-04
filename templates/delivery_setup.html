@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <title>外送資料填寫</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <style>
+        /* 全局與背景設定 */
+        body { 
+            font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; 
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            box-sizing: border-box;
+            color: #111; 
+        }
+
+        /* 背景圖片設定 (使用偽元素避免 opacity 影響到文字與卡片) */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            
+            /* 💡 關鍵：將原本的靜態網址，替換成 Jinja2 語法 */
+            background: url('{{ settings.get("shop_logo_url", "") }}') no-repeat center center;
+            
+            /*background-size: cover;  滿版並裁切*/ 
+            background-size: contain; /*縮放至完整*/ 
+            opacity: 0.6; 
+            z-index: -1; 
+        }
+        /* 統一為特定文字加上白邊與加粗 (已將 input, select 移除，避免在白底上模糊) */
+        h2, .subtitle, label, .notice-badge, .error-msg, .back-link {
+            font-weight: 900;
+            /* 利用八方向的文字陰影來模擬文字白邊 */
+            text-shadow: 
+                -1.5px -1.5px 0 #fff,
+                 0     -1.5px 0 #fff,
+                 1.5px -1.5px 0 #fff,
+                 1.5px  0     0 #fff,
+                 1.5px  1.5px 0 #fff,
+                 0      1.5px 0 #fff,
+                -1.5px  1.5px 0 #fff,
+                -1.5px  0     0 #fff;
+        }
+
+        /* 主容器卡片 - 保持透明去除白色區塊與陰影 */
+        .container { 
+            background: transparent; 
+            padding: 40px; 
+            border-radius: 20px; 
+            box-shadow: none; 
+            width: 100%;
+            max-width: 420px; 
+            box-sizing: border-box;
+        }
+
+        /* 標題區域 */
+        h2 { 
+            margin-top: 0; 
+            margin-bottom: 8px;
+            color: #1a252f; 
+            font-size: 1.8em; 
+            text-align: center;
+        }
+        .subtitle { 
+            color: #2c3e50; 
+            font-size: 1em; 
+            margin-top: 0;
+            margin-bottom: 25px; 
+            text-align: center;
+        }
+
+        /* 表單群組 */
+        .form-group { 
+            margin-bottom: 22px; 
+        }
+        
+        label { 
+            display: block; 
+            margin-bottom: 8px; 
+            color: #1a252f; 
+            font-size: 1.05em;
+        }
+
+        /* 輸入框與下拉選單 - 恢復白色背景 */
+        input, select { 
+            width: 100%; 
+            padding: 14px 15px; 
+            border: 2px solid #2c3e50; 
+            border-radius: 12px; 
+            font-size: 16px; 
+            box-sizing: border-box; 
+            background: #ffffff; /* 【修改】恢復白色背景 */
+            color: #111;
+            font-weight: bold; /* 讓輸入文字稍微加粗，保持整體風格 */
+            transition: all 0.3s ease; 
+            font-family: inherit;
+        }
+        input::placeholder { 
+            color: #7f8c8d; /* 調整為適合白底的提示文字顏色 */
+            font-weight: normal;
+        }
+        
+        /* 輸入框 Focus 狀態 */
+        input:focus, select:focus { 
+            outline: none; 
+            border-color: #ff5722; 
+            background: #ffffff; /* 確保點擊時也是白底 */
+            box-shadow: 0 0 8px rgba(255, 87, 34, 0.3); /* 改回橘色系光暈以搭配白底 */
+        }
+
+        /* 時間選擇區塊 */
+        .datetime-row { 
+            display: flex; 
+            gap: 15px; 
+        }
+        .datetime-col { flex: 1; }
+
+        /* 提示標籤 - 去除背景 */
+        .notice-badge {
+            display: inline-block;
+            background: transparent;
+            color: #d35400;
+            padding: 6px 0;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
+        /* 送出按鈕 */
+        .btn-submit {
+            width: 100%; 
+            padding: 16px;
+            background: #ff5722; 
+            color: white;
+            border: 2px solid #fff; 
+            border-radius: 50px;
+            font-size: 1.15em; 
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 56px;
+        }
+        .btn-submit:hover:not(:disabled) {
+            background: #e64a19;
+            transform: translateY(-2px);
+        }
+        .btn-submit:active:not(:disabled) {
+            transform: translateY(0);
+        }
+        .btn-submit:disabled { 
+            background: #bdc3c7; 
+            box-shadow: none;
+            cursor: not-allowed; 
+            border-color: transparent;
+        }
+
+        /* 載入中動畫 */
+        .loader {
+            display: none;
+            border: 3px solid rgba(255,255,255,0.3); 
+            border-top: 3px solid white;
+            border-radius: 50%; 
+            width: 22px; 
+            height: 22px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+
+        /* 錯誤訊息 - 去除背景 */
+        .error-msg { 
+            background: transparent;
+            color: #c0392b; 
+            padding: 10px 0;
+            border: none;
+            margin-top: 10px;
+            margin-bottom: 10px; 
+            display: none; 
+            font-size: 1.05em;
+            text-align: center;
+        }
+
+        /* 返回連結 */
+        .back-link {
+            display: block;
+            text-align: center;
+            margin-top: 25px;
+            color: #2c3e50;
+            text-decoration: none;
+            font-size: 1em;
+            transition: color 0.3s;
+        }
+        .back-link:hover { color: #000; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🛵 外送服務</h2>
+    <p class="subtitle">請填寫資訊以計算運費與預約時間</p>
+
+    <div class="form-group">
+        <label for="name">聯絡人姓名</label>
+        <input type="text" id="name" placeholder="您的稱呼" required>
+    </div>
+
+    <div class="form-group">
+        <label for="phone">手機號碼</label>
+        <input type="tel" id="phone" placeholder="09xx-xxx-xxx" required>
+    </div>
+
+    <div class="form-group">
+        <div class="datetime-row">
+            <div class="datetime-col">
+                <label for="date-select">日期</label>
+                <select id="date-select" onchange="updateTimeSlots()">
+                    {% for d in dates %}
+                    <option value="{{ d.value }}">{{ d.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="datetime-col">
+                <label for="time-select">時間</label>
+                <select id="time-select">
+                    <option value="">請選擇時間</option>
+                </select>
+            </div>
+        </div>
+        <div class="notice-badge">🕒 11:30~13:30 暫停外送服務</div>
+    </div>
+
+    <div class="form-group">
+        <label for="address">完整地址 (含縣市)</label>
+        <input type="text" id="address" placeholder="例如：台北市中山區..." required>
+    </div>
+
+    <div id="error-box" class="error-msg"></div>
+
+    <button onclick="checkAndSubmit()" id="submitBtn" class="btn-submit">
+        <span id="btnText">確認並開始點餐</span>
+        <div id="loader" class="loader"></div>
+    </button>
+    
+    <a href="/" class="back-link">← 返回首頁</a>
+</div>
+
+<script>
+    // 1. 從後端取得完整的日期與時段資料 (Jinja2 渲染)
+    const DATE_DATA = {{ dates | tojson }};
+
+    // 2. 更新時間選項的函式
+    function updateTimeSlots() {
+        const dateSelect = document.getElementById('date-select');
+        const timeSelect = document.getElementById('time-select');
+        const selectedDateVal = dateSelect.value;
+        
+        // 清空目前的時間選項
+        timeSelect.innerHTML = '<option value="">請選擇時間</option>';
+        
+        // 找到對應日期的資料
+        const targetDateObj = DATE_DATA.find(d => d.value === selectedDateVal);
+        
+        if (targetDateObj && targetDateObj.slots && targetDateObj.slots.length > 0) {
+            targetDateObj.slots.forEach(timeStr => {
+                const opt = document.createElement('option');
+                opt.value = timeStr;
+                opt.textContent = timeStr;
+                timeSelect.appendChild(opt);
+            });
+        } else {
+            const opt = document.createElement('option');
+            opt.textContent = "本日已無時段";
+            timeSelect.appendChild(opt);
+        }
+    }
+
+    // 3. 頁面載入時初始化時間選項
+    window.onload = function() {
+        updateTimeSlots();
+    };
+
+    // 4. 送出檢查
+    async function checkAndSubmit() {
+        // 使用 trim() 避免使用者只輸入空白字元
+        const name = document.getElementById('name').value.trim();
+        const phone = document.getElementById('phone').value.trim();
+        const address = document.getElementById('address').value.trim();
+        const date = document.getElementById('date-select').value;
+        const time = document.getElementById('time-select').value;
+        
+        const btn = document.getElementById('submitBtn');
+        const loader = document.getElementById('loader');
+        const btnText = document.getElementById('btnText');
+        const errorBox = document.getElementById('error-box');
+
+        // 驗證
+        if(!name || !phone || !address) {
+            errorBox.innerText = "⚠️ 請填寫姓名、電話與地址";
+            errorBox.style.display = 'block';
+            return;
+        }
+        if(!date || !time) {
+            errorBox.innerText = "⚠️ 請選擇外送日期與時間";
+            errorBox.style.display = 'block';
+            return;
+        }
+
+        // UI 變更為讀取中
+        btn.disabled = true;
+        btnText.style.display = 'none';
+        loader.style.display = 'block';
+        errorBox.style.display = 'none';
+
+        try {
+            const response = await fetch('/delivery/check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, phone, address, date, time })
+            });
+
+            const result = await response.json();
+
+            if (result.success) {
+                // 成功，跳轉到菜單
+                window.location.href = result.redirect;
+            } else {
+                // 失敗 (距離太遠或找不到地址)
+                errorBox.innerText = "❌ " + result.msg;
+                errorBox.style.display = 'block';
+                
+                // 恢復按鈕
+                btn.disabled = false;
+                btnText.style.display = 'inline';
+                loader.style.display = 'none';
+            }
+        } catch (err) {
+            console.error(err);
+            errorBox.innerText = "❌ 系統錯誤，請檢查網路連線";
+            errorBox.style.display = 'block';
+            btn.disabled = false;
+            btnText.style.display = 'inline';
+            loader.style.display = 'none';
+        }
+    }
+</script>
+
+</body>
+</html>

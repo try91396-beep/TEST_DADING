@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🍳 廚房出餐看板 Pro (多機 USB 自動列印版)</title>
+    <script src="https://cdn.jsdelivr.net/npm/text-encoding-utf-8@1.0.2/lib/encoding-indexes.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/text-encoding-utf-8@1.0.2/lib/encoding.js"></script>
+    <style>
+        :root {
+            --pending: #fff4e5; --completed: #e8f5e9; --cancelled: rgba(244, 67, 54, 0.15);
+            --main-text: #333; --accent-purple: #673ab7; --accent-blue: #2196f3;
+            --accent-green: #4caf50; --accent-orange: #ff9800; --accent-red: #f44336;
+            --delivery-color: #ff5722;
+        }
+        body { font-family: "Microsoft JhengHei", sans-serif; background: #f0f2f5; margin: 0; padding: 15px; color: var(--main-text); }
+
+        /* 背景圖片設定 (使用偽元素避免 opacity 影響到文字與卡片) */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            
+            /* 💡 關鍵：將原本的靜態網址，替換成 Jinja2 語法 */
+            background: url('{{ settings.get("shop_logo_url", "") }}') no-repeat center center;
+            
+            /*background-size: cover;  滿版並裁切*/ 
+            background-size: contain; /*縮放至完整*/ 
+            opacity: 0.6; 
+            z-index: -1; 
+        }
+        
+        header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            background: #fff; padding: 10px 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-bottom: 20px; flex-wrap: wrap; gap: 10px;
+        }
+        .nav-links { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .order-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); 
+            gap: 20px; 
+            align-items: flex-start; 
+        }
+        
+        .card { 
+            background: white; border-radius: 12px; border: 1px solid #ddd;
+            display: flex; flex-direction: column; overflow: hidden;
+            transition: transform 0.2s; position: relative; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            height: auto;
+        }
+
+        .card.pending { border-left: 8px solid var(--accent-orange); background: var(--pending); }
+        .card.completed { border-left: 8px solid var(--accent-green); background: var(--completed); opacity: 0.8; background-color: #f9f9f9; }
+        .card.cancelled {
+            background-color: var(--cancelled) !important; 
+            border: 2px solid rgba(244, 67, 54, 0.3) !important; border-left: 8px solid var(--accent-red);
+            opacity: 0.75; filter: grayscale(0.4); overflow: hidden;
+        }
+        .card.cancelled::after {
+            content: "CANCELLED"; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%) rotate(-15deg); font-size: 2.2em; font-weight: 900;
+            color: rgba(244, 67, 54, 0.25); pointer-events: none; z-index: 1; letter-spacing: 2px;
+        }
+
+        .card-header { padding: 12px; border-bottom: 1px dashed #ccc; display: flex; justify-content: space-between; z-index: 2; align-items: flex-start; }
+        .seq-num { font-size: 26px; font-weight: 900; color: #d32f2f; line-height: 1; }
+        .time-stamp { font-size: 0.8em; color: #666; margin-top: 4px; }
+        
+        .badge-table { font-size: 20px; font-weight: bold; background: #333; color: white; padding: 4px 10px; border-radius: 4px; }
+        .badge-delivery { font-size: 18px; font-weight: bold; background: var(--delivery-color); color: white; padding: 4px 10px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; }
+        
+        .delivery-details {
+            font-size: 0.9rem; background: #fff3e0; color: #bf360c;
+            padding: 8px; margin: 0 12px 5px 12px; border-radius: 4px;
+            border: 1px dashed #ffb74d; display: flex; flex-direction: column; gap: 2px;
+            word-break: break-all; white-space: normal; overflow-wrap: break-word; 
+        }
+
+        .items { padding: 12px; flex-grow: 1; z-index: 2; min-height: 80px; }
+        .item-row { margin-bottom: 8px; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 6px; }
+        .item-name { display: flex; justify-content: space-between; font-size: 19px; font-weight: 600; }
+        .item-qty { font-weight: 900; font-size: 1.1em; }
+        .item-opts { font-size: 14px; color: #666; margin-left: 10px; margin-top: 2px; }
+
+        .actions { padding: 12px; background: rgba(0,0,0,0.03); display: flex; flex-direction: column; gap: 8px; z-index: 2; }
+        
+        .btn { 
+            padding: 10px; border: none; border-radius: 6px; cursor: pointer; 
+            font-size: 14px; font-weight: bold; text-align: center; display: inline-block; text-decoration: none;
+        }
+        .btn-main { background: var(--accent-green); color: white; }
+        .btn-print { background: var(--accent-blue); color: white; }
+        .btn-void { background: var(--accent-red); color: white; }
+        
+        .printer-status-group { display: flex; gap: 5px; }
+        .btn-conn { background: #eee; color: #666; border: 1px solid #ccc; font-size: 12px; padding: 5px 8px; }
+        .btn-conn.online { background: #4caf50; color: white; border-color: #4caf50; }
+        .btn-conn.offline { background: #f44336; color: white; animation: pulse 2s infinite; }
+
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
+
+        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(3px); }
+        .modal-content { background-color: #fff; margin: 10% auto; padding: 25px; border-radius: 12px; width: 90%; max-width: 350px; text-align: center; box-shadow: 0 5px 20px rgba(0,0,0,0.3); position: relative; }
+        .modal-content.wide { max-width: 600px; }
+        .modal-btn { width: 100%; padding: 15px; margin: 10px 0; font-size: 18px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
+
+        .sales-controls { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #eee; }
+        .date-group { display: flex; justify-content: space-between; align-items: center; gap: 5px; }
+        .date-input { padding: 8px; border: 1px solid #ccc; border-radius: 4px; flex-grow: 1; font-family: inherit; }
+        .btn-query { background: var(--accent-purple); color: white; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .btn-today { background: transparent; border: 1px solid var(--accent-orange); color: var(--accent-orange); padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; margin-bottom: 5px; }
+        .sales-table { width: 100%; border-collapse: collapse; margin-top: 10px; text-align: left; }
+        .sales-table th { background: #eee; padding: 10px; border-bottom: 2px solid #ddd; color: #555; font-size: 14px; position: sticky; top: 0; }
+        .sales-table td { padding: 10px; border-bottom: 1px solid #f0f0f0; font-size: 16px; font-weight: 500; }
+        .rank-badge { display: inline-block; width: 24px; height: 24px; line-height: 24px; text-align: center; border-radius: 50%; font-size: 12px; font-weight: bold; color: white; background: #ccc; }
+        .rank-1 { background: #FFD700; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .rank-2 { background: #C0C0C0; }
+        .rank-3 { background: #CD7F32; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1 style="margin:0;">🍳 廚房出餐看板 Pro</h1>
+        <span id="update-time" style="font-size:12px; color:#888;">正在連線...</span>
+    </div>
+
+    <div class="printer-status-group">
+        <button id="btn-receipt" onclick="setupPrinter('receipt')" class="btn btn-conn">🖨️ 結帳機</button>
+        <button id="btn-noodle" onclick="setupPrinter('noodle')" class="btn btn-conn">🍜 麵區機</button>
+        <button id="btn-soup" onclick="setupPrinter('soup')" class="btn btn-conn">🥣 湯區機</button>
+    </div>
+
+    <div class="nav-links">
+    <button onclick="testAudioAndRefresh()" class="btn" style="background:#eee;">刷新/測試音效</button>
+    <button onclick="openSalesModal()" class="btn" style="background:var(--accent-orange); color:white;">📈 銷售排行</button>
+    <a href="/kitchen/report" target="_blank" class="btn" style="background:#673ab7; color:white; text-decoration:none;">📊 營收報表</a>
+    <a href="/admin" target="_blank" class="btn" style="background:#333; color:white; text-decoration:none;">⚙️ 管理後台</a>
+    
+    <div style="display: flex; align-items: center; gap: 10px; background: #f8f9fa; padding: 2px 12px; border-radius: 50px; border: 1px solid #ddd; margin-left: 5px;">
+        <span style="color: #333; font-weight: bold; font-size: 14px;">
+            <span style="color: #666; font-size: 12px; font-weight: normal;">[{{ current_role }}]</span> {{ current_username }}
+        </span>
+        <a href="{{ logout_url }}" style="background-color: #dc3545; color: white; text-decoration: none; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; transition: 0.3s;" onmouseover="this.style.backgroundColor='#c82333'" onmouseout="this.style.backgroundColor='#dc3545'">
+            登出
+        </a>
+    </div>
+    </div>
+</header>
+
+<div id="order-grid" class="order-grid">
+    <p style="text-align:center; grid-column: 1/-1;">正在載入今日訂單...</p>
+</div>
+
+<div id="printModal" class="modal">
+    <div class="modal-content">
+        <h3 style="margin-top:0;">🖨️ 選擇列印內容</h3>
+        <button onclick="doPrint('receipt')" class="modal-btn" style="background:var(--accent-blue); color:white;">僅列印結帳單</button>
+        <button onclick="doPrint('kitchen')" class="modal-btn" style="background:var(--accent-orange); color:white;">僅列印廚房單</button>
+        <button onclick="doPrint('all')" class="modal-btn" style="background:var(--accent-green); color:white;">列印全部單據</button>
+        <button onclick="closePrintModal()" class="modal-btn" style="background:#eee; color:#333;">取消</button>
+    </div>
+</div>
+
+<div id="salesModal" class="modal">
+    <div class="modal-content wide">
+        <h3 style="margin-top:0;">📈 商品銷售統計</h3>
+        <div class="sales-controls">
+            <div style="text-align: right;"><button onclick="setTodayRange()" class="btn-today">📅 僅看今日</button></div>
+            <div class="date-group"><label>開始:</label><input type="datetime-local" id="rankStartTime" class="date-input"></div>
+            <div class="date-group"><label>結束:</label><input type="datetime-local" id="rankEndTime" class="date-input"></div>
+            <button onclick="fetchSalesRanking()" class="btn-query">🔍 查詢區間數據</button>
+        </div>
+        <div style="max-height: 350px; overflow-y: auto;">
+            <table class="sales-table">
+                <thead><tr><th style="width: 50px; text-align:center;">排名</th><th>品項名稱</th><th style="width: 80px; text-align:right;">數量</th></tr></thead>
+                <tbody id="salesListBody"><tr><td colspan="3" style="text-align:center; color:#999; padding:20px;">請選擇時間並點擊查詢</td></tr></tbody>
+            </table>
+        </div>
+        <button onclick="closeSalesModal()" class="modal-btn" style="background:#eee; color:#333; margin-top: 15px;">關閉</button>
+    </div>
+</div>
+
+<audio id="newOrderSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" preload="auto"></audio>
+
+<script>
+    let lastMaxSeq = 0;
+    let currentPrintOid = null;
+    const grid = document.getElementById('order-grid');
+    const updateTimeText = document.getElementById('update-time');
+    const audio = document.getElementById('newOrderSound');
+    const synth = window.speechSynthesis;
+
+    // ==========================================
+    // 🖨️ 多機 Web USB 列印邏輯 (含修復切換頁面衝突)
+    // ==========================================
+    let printers = {
+        receipt: null,
+        noodle: null,
+        soup: null
+    };
+
+    // --- 新增：優雅釋放 USB 裝置 (解決跳轉頁面衝突) ---
+    window.addEventListener('beforeunload', async () => {
+        for (let key in printers) {
+            if (printers[key] && printers[key].opened) {
+                try {
+                    await printers[key].releaseInterface(0);
+                    await printers[key].close();
+                } catch (err) {
+                    console.error("釋放裝置失敗:", err);
+                }
+            }
+        }
+    });
+
+    async function initUSB() {
+        try {
+            const devices = await navigator.usb.getDevices();
+            for (let device of devices) {
+                await autoAssignDevice(device);
+            }
+        } catch (err) {
+            console.warn("自動喚回 USB 失敗:", err);
+        }
+    }
+
+    async function autoAssignDevice(device) {
+        try {
+            if (!device.opened) await device.open();
+            await device.selectConfiguration(1);
+            await device.claimInterface(0);
+            
+            const sn = device.serialNumber || device.productName;
+            if (localStorage.getItem('usb_receipt') === sn) {
+                printers.receipt = device;
+                updatePrinterUI('receipt', true);
+            } else if (localStorage.getItem('usb_noodle') === sn) {
+                printers.noodle = device;
+                updatePrinterUI('noodle', true);
+            } else if (localStorage.getItem('usb_soup') === sn) {
+                printers.soup = device;
+                updatePrinterUI('soup', true);
+            }
+        } catch (e) {
+            console.error("分配裝置失敗", e);
+        }
+    }
+
+    async function setupPrinter(type) {
+        try {
+            const device = await navigator.usb.requestDevice({ filters: [] });
+            
+            // 修復：如果裝置已開啟，先嘗試關閉它
+            if (device.opened) await device.close();
+
+            await device.open();
+            await device.selectConfiguration(1);
+            
+            try {
+                await device.claimInterface(0);
+            } catch (claimErr) {
+                alert("⚠️ 無法佔用裝置：裝置可能正被其他頁面使用。請關閉所有報表分頁後重試。");
+                return;
+            }
+            
+            printers[type] = device;
+            const sn = device.serialNumber || device.productName;
+            localStorage.setItem('usb_' + type, sn);
+            
+            updatePrinterUI(type, true);
+            alert(`${type} 印表機設定成功！`);
+        } catch (err) {
+            alert("設定失敗: " + err.message);
+        }
+    }
+
+    function updatePrinterUI(type, isOnline) {
+        const btn = document.getElementById('btn-' + type);
+        if (isOnline) {
+            btn.classList.add('online');
+            btn.classList.remove('offline');
+            const sn = printers[type].serialNumber || "已連線";
+            btn.innerText = `✅ ${type === 'receipt' ? '結帳' : type === 'noodle' ? '麵區' : '湯區'} (${sn.slice(-4)})`;
+        } else {
+            btn.classList.remove('online');
+            btn.classList.add('offline');
+            btn.innerText = `🔌 設定${type === 'receipt' ? '結帳' : type === 'noodle' ? '麵區' : '湯區'}`;
+        }
+    }
+
+    async function fetchAndPrint(oid, type) {
+        const url = `/kitchen/print_order/${oid}?type=${type}&format=base64`;
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+
+            if (data.status === "success" && data.tasks) {
+                for (let [role, b64] of Object.entries(data.tasks)) {
+                    if (!b64) continue;
+                    const bytes = new Uint8Array(atob(b64).split("").map(c => c.charCodeAt(0)));
+                    
+                    let targetDevice = null;
+                    if (role === 'receipt') targetDevice = printers.receipt;
+                    else if (role === 'noodle') targetDevice = printers.noodle || printers.receipt;
+                    else if (role === 'soup') targetDevice = printers.soup || printers.receipt;
+                    else targetDevice = printers.receipt;
+
+                    if (targetDevice && targetDevice.opened) {
+                        const endpoint = targetDevice.configuration.interfaces[0].alternates[0].endpoints.find(e => e.direction === 'out').endpointNumber;
+                        await targetDevice.transferOut(endpoint, bytes);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("列印失敗:", err);
+            alert("列印失敗，請檢查印表機連線");
+        }
+    }
+
+    // ==========================================
+    // 🔊 音效、播報與刷新 (功能完整保留)
+    // ==========================================
+    function speakNewOrder() {
+        if (synth.speaking) return;
+        const utterThis = new SpeechSynthesisUtterance("有新訂單，請注意");
+        utterThis.lang = 'zh-TW'; utterThis.rate = 1; 
+        synth.speak(utterThis);
+    }
+
+    function testAudioAndRefresh() {
+        audio.play().catch(e => console.log("Audio block:", e));
+        refreshOrders();
+    }
+
+    function refreshOrders() {
+        fetch('/kitchen/check_new_orders?last_seq=' + lastMaxSeq)
+            .then(res => res.json())
+            .then(data => {
+                if (data.html) grid.innerHTML = data.html;
+                updateTimeText.innerText = '最後更新: ' + new Date().toLocaleTimeString();
+                if (data.new_ids && data.new_ids.length > 0) {
+                    audio.play().then(() => setTimeout(speakNewOrder, 800)).catch(() => speakNewOrder());
+                }
+                if (data.max_seq && data.max_seq > lastMaxSeq) lastMaxSeq = data.max_seq;
+            })
+            .catch(err => { updateTimeText.innerText = '連線失敗'; });
+    }
+
+    function action(url) {
+        fetch(url).then(res => { if (res.ok) refreshOrders(); else alert("動作執行失敗"); });
+    }
+
+    function askPrintType(oid) {
+        currentPrintOid = oid;
+        document.getElementById('printModal').style.display = "block";
+    }
+
+    function closePrintModal() {
+        document.getElementById('printModal').style.display = "none";
+        currentPrintOid = null;
+    }
+
+    function doPrint(type) {
+        if (!currentPrintOid) return;
+        fetchAndPrint(currentPrintOid, type);
+        closePrintModal();
+    }
+
+    function completeAndPrint(oid) {
+        // 1. 直接呼叫你底層的列印核心，傳入當前點擊的 oid 與廚房單型態 'kitchen'
+        // 這樣會直接觸發後端的 /print_order/<oid>?type=kitchen&format=base64
+        if (typeof fetchAndPrint === "function") {
+            fetchAndPrint(oid, 'kitchen');
+        }
+    
+        // 2. 延遲 0.5 秒後再執行出餐動作
+        // 這是為了防止 action() 如果會引發網頁重整（reload），會不小心把上面的 fetch 列印請求打斷
+        setTimeout(function() {
+            action('/kitchen/complete/' + oid);
+        }, 500);
+    }
+
+    function openSalesModal() { document.getElementById('salesModal').style.display = "block"; setTodayRange(); }
+    function closeSalesModal() { document.getElementById('salesModal').style.display = "none"; }
+    function setTodayRange() {
+        const now = new Date();
+        const toLocalISO = (date) => {
+            const offset = date.getTimezoneOffset() * 60000;
+            return (new Date(date - offset)).toISOString().slice(0, 16);
+        };
+        document.getElementById('rankEndTime').value = toLocalISO(now);
+        const start = new Date(now); start.setHours(0, 0, 0, 0);
+        document.getElementById('rankStartTime').value = toLocalISO(start);
+    }
+    
+    function fetchSalesRanking() {
+        const start = document.getElementById('rankStartTime').value;
+        const end = document.getElementById('rankEndTime').value;
+        const tbody = document.getElementById('salesListBody');
+        if (!start || !end) { alert("請選擇開始與結束時間"); return; }
+        tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:20px;">數據計算中...</td></tr>';
+        fetch(`/kitchen/sales_ranking?start_time=${start}&end_time=${end}`)
+            .then(res => res.json())
+            .then(data => {
+                tbody.innerHTML = '';
+                if (!data || data.length === 0) { tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:20px;">無銷售數據</td></tr>'; return; }
+                data.forEach((item, index) => {
+                    let rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : '';
+                    tbody.innerHTML += `<tr><td style="text-align:center;"><span class="rank-badge ${rankClass}">${index + 1}</span></td><td>${item.name}</td><td style="text-align:right; font-weight:bold;">${item.count}</td></tr>`;
+                });
+            });
+    }
+
+    window.onload = () => {
+        initUSB();
+        refreshOrders();
+        setInterval(refreshOrders, 3000);
+    };
+
+    window.onclick = function(event) {
+        if (event.target.className === 'modal') {
+            closePrintModal();
+            closeSalesModal();
+        }
+    }
+</script>
+
+</body>
+</html>

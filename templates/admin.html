@@ -1,0 +1,667 @@
+{% extends "base.html" %}
+
+{% block title %}餐廳後台管理系統{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.min.css">
+<style>
+    /* ==========================================
+       1. 全局變數與基礎設定
+       ========================================== */
+    :root { 
+        --primary: #8a2be2; 
+        --primary-hover: #7324ba;
+        --bg: #f4f6f9; 
+        --card-bg: #ffffff;
+        --text-main: #2c3e50;
+        --border-color: #e2e8f0;
+        --danger: #e74c3c;
+        --success: #2ecc71;
+    }
+    
+    body { 
+        background: var(--bg); 
+        padding-bottom: 60px; 
+        font-family: "PingFang TC", "Heiti TC", "Microsoft JhengHei", sans-serif; 
+        color: var(--text-main);
+    }
+    
+    .container { 
+        max-width: 1100px; 
+        margin: 0 auto; 
+        padding: 30px 20px; 
+    }
+
+    .top-bar {
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        margin-bottom: 20px;
+    }
+
+    /* ==========================================
+       2. 卡片 (Card) 與排版設計
+       ========================================== */
+    .card { 
+        background: var(--card-bg); 
+        border-radius: 16px; 
+        padding: 30px; 
+        box-shadow: 0 8px 24px rgba(0,0,0,0.04); 
+        margin-bottom: 30px; 
+        border: 1px solid rgba(0,0,0,0.02);
+        transition: box-shadow 0.3s ease;
+    }
+    .card:hover {
+        box-shadow: 0 12px 32px rgba(0,0,0,0.08); 
+    }
+
+    .section-title { 
+        border-bottom: 2px solid var(--border-color); 
+        padding-bottom: 12px; 
+        margin-bottom: 25px; 
+        color: var(--primary); 
+        font-weight: 700; 
+        display: flex;
+        align-items: center;
+        gap: 8px; 
+    }
+
+    /* ==========================================
+       3. 置頂搜尋欄位 (Floating Sticky Header)
+       ========================================== */
+    .sticky-header {
+        position: sticky;
+        top: 15px; 
+        z-index: 1000;
+        margin-bottom: 25px;
+    }
+    .sticky-header input { 
+        background: rgba(255, 255, 255, 0.95) !important; 
+        backdrop-filter: blur(10px); 
+        box-shadow: 0 8px 20px rgba(138, 43, 226, 0.15); 
+        border: 2px solid var(--primary);
+        border-radius: 50px; 
+        height: 4.8rem;
+        font-size: 1.5rem;
+        padding: 0 25px;
+        transition: all 0.3s ease;
+    }
+    .sticky-header input:focus {
+        box-shadow: 0 8px 25px rgba(138, 43, 226, 0.3); 
+        background: #fff !important;
+    }
+
+    /* ==========================================
+       4. 按鈕與狀態標籤
+       ========================================== */
+    button, .button { border-radius: 8px; font-weight: 600; transition: all 0.2s; }
+    button:hover, .button:hover { transform: translateY(-1px); }
+    .btn-full { width: 100%; }
+    
+    .btn-sm { 
+        padding: 0 15px; 
+        height: 32px; 
+        line-height: 30px; 
+        font-size: 1.2rem; 
+        cursor: pointer; 
+        border-radius: 20px;
+        border: 1px solid transparent;
+    }
+    .status-on { background: #e8f8f5; color: var(--success); border-color: #a3e4d7; }
+    .status-on:hover { background: #d1f2eb; }
+    .status-off { background: #fdedec; color: var(--danger); border-color: #fadbd8; }
+    .status-off:hover { background: #fadbd8; }
+    
+    .alert { 
+        padding: 15px 20px; 
+        background: #e1f5fe; 
+        color: #0277bd; 
+        border-radius: 8px; 
+        margin-bottom: 25px; 
+        border-left: 5px solid #039be5; 
+        font-weight: 600;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+
+    /* ==========================================
+       5. 表格與清單項目
+       ========================================== */
+    table { width: 100%; border-collapse: collapse; }
+    th { color: #7f8c8d; font-size: 1.2rem; border-bottom: 2px solid var(--border-color); }
+    td { vertical-align: middle; border-bottom: 1px solid var(--border-color); padding: 12px 5px; }
+    
+    .product-row:hover { background-color: #fcfcfc; }
+    .handle { cursor: grab; color: #bdc3c7; font-size: 22px; padding: 0 15px; text-align: center; }
+    .handle:active { cursor: grabbing; }
+    
+    .prod-name { font-size: 1.2em; font-weight: 700; color: var(--text-main); margin-bottom: 4px; }
+    .prod-info { font-size: 0.9em; color: #7f8c8d; margin-top: 4px; }
+    .lang-tag { 
+        font-size: 0.75em; 
+        background: #ecf0f1; 
+        padding: 3px 6px; 
+        border-radius: 4px; 
+        margin-right: 4px; 
+        color: #7f8c8d; 
+        font-weight: 700; 
+    }
+
+    /* ==========================================
+       6. 表單細節與互動
+       ========================================== */
+    input, select { border-radius: 6px !important; border: 1px solid #ced4da !important; }
+    input:focus, select:focus { border-color: var(--primary) !important; outline: none; }
+    label { font-weight: 600; color: #34495e; margin-bottom: 5px; }
+    
+    details summary {
+        cursor: pointer; 
+        color: var(--primary); 
+        margin-bottom: 15px; 
+        font-weight: 600;
+        padding: 10px;
+        background: #f8f0ff;
+        border-radius: 8px;
+        transition: background 0.2s;
+    }
+    details summary:hover { background: #f0e0ff; }
+    
+    /* ==========================================
+       7. 彈出視窗 Modal
+       ========================================== */
+    .custom-modal {
+        position: fixed; z-index: 9999; left: 0; top: 0;
+        width: 100%; height: 100%; overflow: auto;
+        background-color: rgba(0,0,0,0.4);
+        backdrop-filter: blur(4px); 
+        display: flex; justify-content: center; align-items: center;
+    }
+    .custom-modal-content {
+        background-color: var(--card-bg);
+        margin: auto; padding: 30px;
+        border: none; width: 90%; max-width: 450px;
+        border-radius: 16px; 
+        box-shadow: 0 15px 40px rgba(0,0,0,0.2);
+        position: relative;
+        animation: modalFadeIn 0.3s ease-out; 
+    }
+    @keyframes modalFadeIn {
+        from { opacity: 0; transform: translateY(-20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .close-btn {
+        color: #bdc3c7; position: absolute; top: 15px; right: 20px; 
+        font-size: 28px; font-weight: bold; cursor: pointer; transition: color 0.2s;
+    }
+    .close-btn:hover { color: var(--danger); }
+
+    /* ==========================================
+       8. 行動裝置響應式 (RWD) 深度優化
+       ========================================== */
+    @media (max-width: 768px) {
+        .container { padding: 15px 10px; }
+        .card { padding: 20px 15px; margin-bottom: 20px; }
+        
+        /* 【修復重點】：讓所有並排的列在手機上垂直排列，並且滿版 */
+        .row { flex-direction: column; }
+        .column, .column-40, .column-50 { 
+            width: 100% !important; 
+            max-width: 100% !important; 
+            margin-left: 0 !important; 
+            margin-bottom: 15px; 
+        }
+        .column:last-child { margin-bottom: 0; }
+
+        .top-bar { flex-direction: column; align-items: flex-start; gap: 15px; }
+        .top-bar h2 { font-size: 2.2rem; }
+        .top-bar .button { width: 100%; text-align: center; }
+
+        input, select, button, .button { min-height: 44px; }
+        .btn-sm { min-height: 36px; line-height: 36px; padding: 0 20px; }
+
+        .sticky-header { top: 10px; margin-bottom: 15px; }
+        .sticky-header input { height: 4.4rem; font-size: 1.3rem; border-radius: 12px; }
+
+        .row .column a.button, .row .column button.button { width: 100%; margin-bottom: 10px; }
+        
+        /* 菜單列表轉卡片式設計 */
+        table, thead, tbody, th, td, tr { display: block; }
+        thead tr { position: absolute; top: -9999px; left: -9999px; } 
+        
+        tr.product-row { 
+            margin-bottom: 20px; 
+            padding: 0; 
+            border: 1px solid var(--border-color); 
+            border-radius: 12px; 
+            background: #fff; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.03); 
+            overflow: hidden; 
+        }
+        
+        td { border: none; padding: 12px 15px; position: relative; }
+        
+        td.handle { 
+            background: #f8f9fa; 
+            border-bottom: 1px solid var(--border-color); 
+            padding: 12px 15px; 
+            text-align: center; 
+            color: #95a5a6; 
+            width: 100%;
+            font-size: 18px;
+        }
+        
+        td:nth-child(2) { padding-top: 15px; }
+        
+        td:nth-child(3) { 
+            display: inline-block; 
+            width: 50%; 
+            font-size: 1.4rem;
+            padding-bottom: 15px;
+        }
+        td:nth-child(4) { 
+            display: inline-block; 
+            width: 48%; 
+            text-align: right;
+            padding-bottom: 15px;
+        }
+        
+        td:last-child { 
+            display: flex; 
+            gap: 10px; 
+            border-top: 1px solid #f1f1f1; 
+            background: #fafbfc; 
+            padding: 15px;
+        }
+        td:last-child a.button { 
+            flex: 1; 
+            margin: 0; 
+            text-align: center; 
+            padding: 0;
+        }
+    }
+</style>
+{% endblock %}
+
+
+{% block content %}
+<div class="container">
+    <div class="top-bar" style="display: flex; align-items: center; justify-content: flex-start; gap: 20px;">
+        <h2 style="margin: 0; font-weight: 700; color: var(--text-main);">🍴 餐廳系統後台</h2>
+        <a href="/kitchen" class="button button-outline" style="border-radius: 20px; text-decoration: none;">👨‍🍳 廚房看板</a>
+    </div>
+
+    {% if msg %}
+    <div id="status-msg" class="alert" style="display:block;">{{ msg }}</div>
+    {% endif %}
+
+    <div class="card">
+        <h4 class="section-title">🚦 營業狀態控制</h4>
+        <div class="row">
+            <div class="column">
+                <label>🏪 全店營業狀態 (Shop Status)</label>
+                {% set shop_open = config.get('shop_open', 1) %}
+                <button type="button" 
+                        class="btn-sm {{ 'status-on' if shop_open else 'status-off' }}"
+                        onclick="toggleConfig('shop_open', this, '營業中', '休息中')">
+                    {{ '營業中' if shop_open else '休息中' }}
+                </button>
+                <small style="color: #888; margin-left: 8px; display: inline-block;">控制顧客端是否能進入點餐</small>
+            </div>
+            <div class="column">
+                <label>🛵 外送功能總開關 (Master Switch)</label>
+                {% set delivery_on = config.get('enable_delivery', 0) %}
+                <button type="button" 
+                        class="btn-sm {{ 'status-on' if delivery_on else 'status-off' }}"
+                        onclick="toggleConfig('enable_delivery', this, '已開啟', '已關閉')">
+                    {{ '已開啟' if delivery_on else '已關閉' }}
+                </button>
+                <small style="color: #888; margin-left: 8px; display: inline-block;">快速切換外送接單</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="column column-50">
+    <details class="card" style="padding: 0; border: none; box-shadow: none; height: 100%;">
+        <summary class="section-title" style="cursor: pointer; padding: 15px; background: #fff; border-radius: 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); list-style: none; display: flex; align-items: center; gap: 6px;">
+            📧 郵件與系統設定 (點擊展開/收合)
+        </summary>
+
+        <div class="card" style="margin-top: 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); height: auto;">
+            <form method="POST" action="{{ url_for('admin.admin_panel') }}">
+                <label>收件 Email (接收日結單)</label>
+                <input type="email" name="report_email" value="{{ config.get('report_email','') }}">
+                
+                <div style="margin-top: 25px;">
+                    <button type="submit" name="action" value="save_settings">💾 儲存設定</button>
+                    <button type="submit" name="action" value="test_email" class="button button-outline">🧪 測試連線</button>
+                    <hr style="margin: 20px 0; border-color: #eee;">
+                    <button type="submit" name="action" value="send_report_now" class="button button-clear" style="width:100%; color: var(--primary);">📊 立即補發今日報表</button>
+                </div>
+            </form>
+        </div>
+    </details>
+</div>
+
+        <div class="column column-50">
+    <details class="card" style="padding: 0; border: none; box-shadow: none; height: 100%;">
+        <summary class="section-title" style="cursor: pointer; padding: 15px; background: #fff; border-radius: 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); list-style: none; display: flex; align-items: center; gap: 6px;">
+            🛵 外送費率規則 (點擊展開/收合)
+        </summary>
+
+        <div class="card" style="margin-top: 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); height: auto;">
+            <form method="POST" action="{{ url_for('admin.update_delivery_settings') }}">
+                <div style="margin-bottom: 20px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #eee;">
+                    <label style="display: flex; align-items: center; cursor: pointer; margin: 0;">
+                        <input type="checkbox" name="delivery_enabled" style="margin: 0 10px 0 0;" 
+                               {{ 'checked' if config.get('enable_delivery') else '' }}> 
+                        </label>
+                </div>
+
+                <div class="row">
+                    <div class="column">
+                        <label>最低消費金額 ($)</label>
+                        <input type="number" name="delivery_min_price" value="{{ config.get('delivery_min_price', 0) }}" min="0">
+                    </div>
+                    <div class="column">
+                        <label>基礎運費 (Base)</label>
+                        <input type="number" name="delivery_fee_base" value="{{ config.get('delivery_fee_base', 0) }}" min="0">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="column">
+                        <label>最大外送距離 (KM)</label>
+                        <input type="number" name="delivery_max_km" value="{{ config.get('delivery_max_km', 5) }}" step="0.1" min="0">
+                    </div>
+                    <div class="column">
+                        <label>每公里加價 ($)</label>
+                        <input type="number" name="delivery_fee_per_km" value="{{ config.get('delivery_fee_per_km', 10) }}" min="0">
+                    </div>
+                </div>
+
+                <button type="submit" class="button button-outline" style="width: 100%; margin-top: 10px; border-color: var(--primary); color: var(--primary);">💾 更新外送規則</button>
+            </form>
+        </div>
+    </details>
+</div>
+        </div>
+    <details class="card" style="padding: 0; border: none; box-shadow: none;">
+    <summary class="section-title" style="cursor: pointer; padding: 15px; background: #fff; border-radius: 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.06); list-style: none; display: flex; align-items: center; gap: 6px;">
+        ➕ 新增單一品項 (點擊展開/收合)
+    </summary>
+
+    <div class="card" style="margin-top: 10px; box-shadow: 0 4px 24px rgba(0,0,0,0.06);">
+        <form method="POST" action="{{ url_for('admin.admin_panel') }}">
+            <input type="hidden" name="action" value="add_product">
+            <div class="row">
+                <div class="column column-40"><label>品名 (中)</label><input type="text" name="name" required placeholder="例如：招牌牛肉麵"></div>
+                <div class="column"><label>價格</label><input type="number" name="price" required placeholder="0"></div>
+                <div class="column"><label>出單區域</label>
+                    <select name="print_category">
+                        <option value="Noodle">🍜 麵區</option>
+                        <option value="Soup">🍲 湯區</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div class="column"><label>分類 (中)</label><input type="text" name="category" placeholder="例如：主食"></div>
+                <div class="column"><label>圖片 URL</label><input type="text" name="image_url" placeholder="https://..."></div>
+            </div>
+            
+            <details>
+                <summary>🌐 展開多國語言與客製化選項設定</summary>
+                <div style="padding: 10px 5px;">
+                    <div class="row">
+                        <div class="column"><input type="text" name="name_en" placeholder="Name (EN)"></div>
+                        <div class="column"><input type="text" name="name_jp" placeholder="名稱 (JP)"></div>
+                        <div class="column"><input type="text" name="name_kr" placeholder="名稱 (KR)"></div>
+                    </div>
+                    <div class="row">
+                        <div class="column"><input type="text" name="category_en" placeholder="Category (EN)"></div>
+                        <div class="column"><input type="text" name="category_jp" placeholder="Category (JP)"></div>
+                        <div class="column"><input type="text" name="category_kr" placeholder="Category (KR)"></div>
+                    </div>
+                    <label>客製化選項 (請以「逗號」隔開)</label>
+                    <input type="text" name="custom_options" placeholder="例：加麵,去蔥,不加辣">
+                    <div class="row">
+                        <div class="column"><input type="text" name="custom_options_en" placeholder="Options (EN)"></div>
+                        <div class="column"><input type="text" name="custom_options_jp" placeholder="Options (JP)"></div>
+                        <div class="column"><input type="text" name="custom_options_kr" placeholder="Options (KR)"></div>
+                    </div>
+                </div>
+            </details>
+            <button type="submit" class="button btn-full" style="margin-top: 10px;">🚀 提交新增品項</button>
+        </form>
+    </div>
+</details>
+
+    <div class="sticky-header">
+        <input type="text" id="productSearch" placeholder="🔍 搜尋品項名稱、分類或翻譯內容...">
+    </div>
+
+    <div class="card">
+        <h4 class="section-title">📋 菜單管理</h4>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr>
+                        <th width="50" style="text-align: center;">排序</th>
+                        <th>品項與多語翻譯</th>
+                        <th width="100">價格</th>
+                        <th width="120">狀態</th>
+                        <th width="160" style="text-align: center;">操作</th>
+                    </tr>
+                </thead>
+                <tbody id="menu-list">
+                    {% for p in prods %}
+                    <tr data-id="{{ p[0] }}" class="product-row">
+                        <td class="handle" title="拖曳以排序">☰ 拖曳排序</td>
+                        <td>
+                            <div class="prod-name">{{ p[1] }} {% if p[7] %}🖼️{% endif %}</div>
+                            <div class="prod-info">
+                                <span class="lang-tag">EN</span>{{ p[8] or '-' }} | 
+                                <span class="lang-tag">JP</span>{{ p[9] or '-' }} | 
+                                <span class="lang-tag">KR</span>{{ p[10] or '-' }}
+                            </div>
+                            <div class="prod-info" style="color: #95a5a6;">📦 分類：{{ p[3] }} | 🖨️ 區域：{{ p[5] }}</div>
+                        </td>
+                        <td style="font-size: 1.1em; color: var(--primary);"><b>${{ p[2] }}</b></td>
+                        <td>
+                            <button onclick="toggleProduct({{ p[0] }}, this)" 
+                                    class="btn-sm {{ 'status-on' if p[4] else 'status-off' }}">
+                                {{ '上架中' if p[4] else '已下架' }}
+                            </button>
+                        </td>
+                        <td>
+                            <a href="/admin/edit_product/{{ p[0] }}" class="button button-clear" style="padding: 0 10px;">✎ 編輯</a>
+                            <a href="/admin/delete_product/{{ p[0] }}" class="button button-clear" style="color:var(--danger); padding: 0 10px;" onclick="return confirm('確定刪除此品項?')">✖ 刪除</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <hr style="margin: 30px 0;">
+        
+        <div class="row" style="align-items: center;">
+            <div class="column">
+                <a href="/admin/export_menu" class="button button-outline" style="border-radius: 20px;">📤 匯出 Excel</a>
+                <form action="/admin/import_menu" method="POST" enctype="multipart/form-data" style="display:inline;">
+                    <input type="file" name="menu_file" accept=".xlsx" required style="display:none;" id="fileInput" onchange="this.form.submit()">
+                    <button type="button" class="button button-outline" style="border-radius: 20px;" onclick="document.getElementById('fileInput').click()">📥 匯入 Excel</button>
+                </form>
+            </div>
+            <div class="column" style="text-align: right;">
+                <a href="{{ url_for('admin.reset_menu') }}" class="button button-outline" style="color: var(--danger); border-color: var(--danger); border-radius: 20px;" onclick="return confirmMenuReset()">🗑️ 清空菜單</a>
+                <button type="button" class="button" style="background: var(--danger); border-color: var(--danger); color: white; border-radius: 20px;" onclick="openOrderModal()">💥 清空訂單資料</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="orderModal" class="custom-modal" style="display: none;">
+    <div class="custom-modal-content">
+        <span class="close-btn" onclick="closeOrderModal()">&times;</span>
+        <h3 style="color: var(--danger); margin-top: 0; display: flex; align-items: center; gap: 8px;">💥 刪除歷史訂單</h3>
+        
+        <form action="{{ url_for('admin.reset_orders') }}" method="POST" onsubmit="return confirmOrderDelete()">
+            
+            <div style="margin-bottom: 15px; padding: 15px; background: #fdedec; border: 1px solid #fadbd8; border-radius: 8px;">
+                <label style="cursor: pointer; display: flex; align-items: flex-start; margin: 0;">
+                    <input type="radio" name="delete_mode" value="all" checked onchange="toggleDateInputs(false)" style="margin-top: 4px; margin-right: 10px;">
+                    <div>
+                        <strong style="color: var(--danger);">清空所有歷史訂單</strong>
+                        <div style="font-size: 0.85em; color: #e74c3c; margin-top: 5px;">(警告：這將徹底清空資料庫並重置流水號 ID)</div>
+                    </div>
+                </label>
+            </div>
+
+            <div style="margin-bottom: 25px; padding: 15px; background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 8px;">
+                <label style="cursor: pointer; display: flex; align-items: center; margin-bottom: 10px;">
+                    <input type="radio" name="delete_mode" value="range" onchange="toggleDateInputs(true)" style="margin-right: 10px;">
+                    <strong style="color: var(--text-main);">刪除指定日期區間</strong>
+                </label>
+                
+                <div id="date-picker-area" style="display: none; margin-left: 28px;">
+                    <div style="margin-bottom: 10px;">
+                        <span style="display: inline-block; width: 40px; font-weight: 600;">從：</span>
+                        <input type="date" name="start_date" style="padding: 6px 10px; width: calc(100% - 50px);">
+                    </div>
+                    <div>
+                        <span style="display: inline-block; width: 40px; font-weight: 600;">到：</span>
+                        <input type="date" name="end_date" style="padding: 6px 10px; width: calc(100% - 50px);">
+                    </div>
+                </div>
+            </div>
+
+            <div style="text-align: right; display: flex; justify-content: flex-end; gap: 10px;">
+                <button type="button" onclick="closeOrderModal()" class="button button-clear" style="color: #7f8c8d;">取消</button>
+                <button type="submit" style="background: var(--danger); border-color: var(--danger); color: white;">確認執行刪除</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+
+<script>
+    // 1. 系統訊息自動隱藏 (3秒後)
+    const msg = document.getElementById('status-msg');
+    if(msg && msg.innerText.trim() !== "") {
+        setTimeout(() => { 
+            msg.style.opacity = '0';
+            msg.style.transition = 'opacity 0.5s';
+            setTimeout(() => msg.style.display = 'none', 500);
+        }, 3000);
+    }
+
+    // 2. AJAX 設定開關 (全店營業 / 外送總開關)
+    function toggleConfig(key, btn, textOn, textOff) {
+        btn.style.opacity = '0.5'; 
+        fetch('/admin/toggle_config', { 
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: key }) 
+        })
+        .then(r => r.json())
+        .then(d => {
+            btn.style.opacity = '1';
+            if(d.status === 'success') {
+                const isOn = d.new_value; 
+                btn.className = isOn ? 'btn-sm status-on' : 'btn-sm status-off';
+                btn.innerText = isOn ? textOn : textOff;
+                
+                if(key === 'enable_delivery') {
+                    const cb = document.querySelector('input[name="delivery_enabled"]');
+                    if(cb) cb.checked = isOn;
+                }
+            } else {
+                alert('設定更新失敗：' + d.message);
+            }
+        })
+        .catch(err => {
+            btn.style.opacity = '1';
+            console.error(err);
+            alert('連線錯誤，請稍後再試');
+        });
+    }
+
+    // 3. 產品上下架切換 (AJAX)
+    function toggleProduct(pid, btn) {
+        btn.style.opacity = '0.5';
+        fetch('/admin/toggle_product/' + pid, { method: 'POST' })
+        .then(r => r.json()).then(d => {
+            btn.style.opacity = '1';
+            if(d.status === 'success') {
+                btn.className = d.is_available ? 'btn-sm status-on' : 'btn-sm status-off';
+                btn.innerText = d.is_available ? '上架中' : '已下架';
+            }
+        }).catch(() => {
+            btn.style.opacity = '1';
+            alert('切換失敗，請檢查網路。');
+        });
+    }
+
+    // 4. 即時搜尋過濾功能
+    document.getElementById('productSearch').addEventListener('input', e => {
+        let v = e.target.value.toLowerCase();
+        document.querySelectorAll('.product-row').forEach(r => {
+            r.style.display = r.innerText.toLowerCase().includes(v) ? '' : 'none';
+        });
+    });
+
+    // 5. 初始化拖曳排序 (SortableJS)
+    Sortable.create(document.getElementById('menu-list'), {
+        handle: '.handle', 
+        animation: 150,
+        ghostClass: 'sortable-ghost', 
+        onEnd: function() {
+            let order = Array.from(document.querySelectorAll('#menu-list tr')).map(r => r.getAttribute('data-id'));
+            fetch('/admin/reorder_products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order: order })
+            });
+        }
+    });
+
+    // 6. 訂單刪除 Modal 控制邏輯
+    function openOrderModal() { document.getElementById('orderModal').style.display = 'flex'; }
+    function closeOrderModal() { document.getElementById('orderModal').style.display = 'none'; }
+    
+    window.onclick = function(event) {
+        if (event.target == document.getElementById('orderModal')) closeOrderModal();
+    }
+
+    function toggleDateInputs(show) {
+        var area = document.getElementById('date-picker-area');
+        var inputs = area.querySelectorAll('input');
+        if (show) {
+            area.style.display = 'block';
+            inputs.forEach(i => i.required = true);
+        } else {
+            area.style.display = 'none';
+            inputs.forEach(i => i.required = false);
+            inputs.forEach(i => i.value = ''); 
+        }
+    }
+
+    function confirmOrderDelete() {
+        var mode = document.querySelector('input[name="delete_mode"]:checked').value;
+        if (mode === 'all') {
+            var input = prompt("⚠️ 嚴重警告！\n這將刪除「所有」訂單且無法復原。\n請手動輸入 'DELETE' 以確認執行：");
+            return input === 'DELETE';
+        }
+        return confirm("確定要刪除選定日期範圍內的訂單嗎？\n此操作無法復原。");
+    }
+
+    function confirmMenuReset() {
+        var input = prompt("⚠️ 嚴重警告！\n這將清空「所有」產品資料且無法復原。\n\n若確定要執行，請手動輸入 'DELETE'：");
+        return input === 'DELETE';
+    }
+</script>
+{% endblock %}

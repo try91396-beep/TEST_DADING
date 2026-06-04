@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Select Order Type | {{ settings.get('shop_name', '大鼎豬血湯') }}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <style>
+        /* --- 基礎設定：確保撐滿全螢幕 --- */
+        html, body {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Microsoft JhengHei', -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative; 
+            z-index: 1; 
+
+            padding: 10px 15px; 
+            box-sizing: border-box;
+            color: #333;
+            height: 100vh; 
+            height: 100dvh; 
+        }
+
+        /* 利用偽元素製作透明度背景圖片 */
+        body::after {
+            content: "";
+            position: fixed; 
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            
+            /* 🟢 修正：商標網址改由資料庫 settings 帶入 */
+            background: url("{{ settings.get('shop_logo_url', 'https://i.ibb.co/20MXKCFk/1622093786-81a879fc1f1b41afed71696a0e45d95f.png') }}") no-repeat center center;
+            background-size: contain; 
+            opacity: 0.6; 
+            z-index: -1; 
+        }
+
+        /* --- 共用白邊效果 --- */
+        .text-outline {
+            text-shadow: 
+                -1px -1px 0 #fff,  
+                 1px -1px 0 #fff,
+                -1px  1px 0 #fff,
+                 1px  1px 0 #fff,
+                 0   -1px 0 #fff,
+                 0    1px 0 #fff,
+                -1px  0   0 #fff,
+                 1px  0   0 #fff;
+        }
+
+        /* --- 頁首 --- */
+        .header-info {
+            text-align: center;
+            margin-top: 5px;
+            background: transparent;
+            padding: 10px;
+        }
+        h2 {
+            font-size: 1.55em; 
+            margin: 0 0 4px 0;
+            font-weight: 900;
+        }
+        .sub-title {
+            color: #333;
+            font-size: 0.95em;
+            font-weight: bold;
+        }
+
+        /* --- 主容器 --- */
+        .main-container {
+            width: 100%;
+            max-width: 500px;
+            margin: auto; 
+            display: flex;
+            flex-direction: column;
+            gap: 16px; 
+        }
+
+        /* --- 點餐區塊 --- */
+        .order-section {
+            background: transparent;
+            padding: 5px 14px; 
+            text-align: center;
+        }
+        
+        .section-title {
+            font-size: 1.25em;
+            font-weight: bold;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        
+        .dine-in-title { color: #0056b3; }
+        .takeout-title { color: #c2185b; }
+
+        /* --- 語言按鈕網格 --- */
+        .lang-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px; 
+        }
+
+        .btn-lang {
+            padding: 14px 0;
+            text-align: center;
+            text-decoration: none;
+            font-size: 1.15em; 
+            font-weight: bold;
+            border-radius: 12px; 
+            color: white;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+            transition: transform 0.1s;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        .btn-lang:active { transform: scale(0.97); }
+
+        .zh { background: linear-gradient(135deg, #e91e63, #c2185b); } 
+        .en { background: linear-gradient(135deg, #007bff, #0056b3); } 
+        .jp { background: linear-gradient(135deg, #ff9800, #f57c00); } 
+        .kr { background: linear-gradient(135deg, #20c997, #17a2b8); }
+
+        /* --- 外送區塊 --- */
+        .delivery-btn {
+            display: block;
+            width: 100%;
+            padding: 15px 0;
+            text-align: center;
+            text-decoration: none;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: white;
+            border-radius: 50px;
+            margin-top: 5px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        .delivery-internal { background: linear-gradient(135deg, #ff5722, #d84315); }
+        .delivery-panda { background: linear-gradient(135deg, #D70F64, #C20D5A); }
+
+        /* --- 頁尾 --- */
+        .footer-info {
+            text-align: center;
+            padding-top: 8px;
+            padding-bottom: 5px;
+            background: transparent;
+            margin-bottom: 5px;
+        }
+        .footer-info h3 { 
+            margin: 2px 0; 
+            font-size: 1.15em; 
+            color: #111; 
+            font-weight: 900; 
+        }
+        .footer-info h4 { 
+            margin: 2px 0; 
+            font-size: 0.9em; 
+            font-weight: bold; 
+            color: #333; 
+        }
+
+        .table-hint {
+            font-size: 0.85em;
+            color: #333;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .closed-notice {
+            background: transparent;
+            padding: 30px;
+            text-align: center;
+            font-size: 1.4em;
+            font-weight: bold;
+            color: #111;
+        }
+    </style>
+</head>
+<body>
+    <div class="header-info text-outline">
+        <h2>{{ settings.get('shop_name', '龍江路大鼎豬血湯') }}</h2>
+        <div class="sub-title">請選擇用餐方式 / Select Type</div>
+    </div>
+
+    <div class="main-container">
+        {% if shop_open %}
+            
+            {% set table_param = "&table=" + table_num if table_num else "" %}
+            {% set takeout_param = "&table=外帶" + table_num if table_num else "&table=外帶" %}
+
+            <div class="order-section">
+                <div class="section-title dine-in-title text-outline">內用 (Dine In)</div>
+                {% if table_num %}<div class="table-hint text-outline">目前桌號: {{ table_num }}</div>{% endif %}
+                <div class="lang-grid">
+                    <a href="/menu?lang=zh{{ table_param }}" class="btn-lang zh">中文</a>
+                    <a href="/menu?lang=en{{ table_param }}" class="btn-lang en">English</a>
+                    <a href="/menu?lang=jp{{ table_param }}" class="btn-lang jp">日本語</a>
+                    <a href="/menu?lang=kr{{ table_param }}" class="btn-lang kr">한국어</a>
+                </div>
+            </div>
+
+            <div class="order-section">
+                <div class="section-title takeout-title text-outline">外帶 (Takeout)</div>
+                <div class="table-hint text-outline">{% if table_num %} 外帶 (桌號: {{ table_num }}) {% else %} Takeout Order {% endif %}</div>
+                <div class="lang-grid">
+                    <a href="/menu?lang=zh{{ takeout_param }}" class="btn-lang zh">中文</a>
+                    <a href="/menu?lang=en{{ takeout_param }}" class="btn-lang en">English</a>
+                    <a href="/menu?lang=jp{{ takeout_param }}" class="btn-lang jp">日本語</a>
+                    <a href="/menu?lang=kr{{ takeout_param }}" class="btn-lang kr">한국어</a>
+                </div>
+            </div>
+
+            <div style="text-align: center; padding: 0 14px;">
+                {% if delivery_enabled %}
+                    <h6 class="text-outline" style="margin: 0 0 8px 0; color: #d84315; font-size: 0.95em; background: transparent; display: inline-block; font-weight: 900;">滿{{ settings.get('delivery_min_price', '1000') }}可外送 {{ settings.get('delivery_max_km', '1.6') }}km以內</h6>
+                    <a href="/delivery/setup" class="delivery-btn delivery-internal">🛵 外送服務 (Delivery)</a>
+                {% else %}
+                    <a href="https://www.foodpanda.com.tw/restaurant/uf01/hong-xing-xiao-chi-dian" target="_blank" class="delivery-btn delivery-panda">🐼 Foodpanda 外送</a>
+                {% endif %}
+            </div>
+
+        {% else %}
+            <div class="closed-notice text-outline">
+                本店目前休息中<br>
+                <small>營業時間 {{ settings.get('shop_open_time', '10:30') }} ~ {{ settings.get('shop_close_time', '20:30') }}</small><br>
+                <small>Shop Closed</small>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="footer-info text-outline">
+        <h3>📞 {{ settings.get('shop_phone', '02-2515-2519') }}</h3>
+        <h4>📍 {{ settings.get('shop_address', '台北市中山區龍江路164號') }}</h4>
+    </div>
+</body>
+</html>

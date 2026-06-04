@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>後台登入 - 龍江路大鼎豬血湯</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f4; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .login-box { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 300px; }
+        .login-box h2 { text-align: center; margin-bottom: 20px; }
+        .input-group { margin-bottom: 15px; }
+        .input-group label { display: block; margin-bottom: 5px; color: #333; }
+        .input-group input { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        
+        /* --- 💡 新增：顯示密碼勾選框專屬的排版樣式 --- */
+        .show-password-wrapper { display: flex !important; align-items: center; gap: 5px; font-size: 14px; color: #555; margin-top: 8px; cursor: pointer; font-weight: normal; }
+        .show-password-wrapper input[type="checkbox"] { width: auto !important; margin: 0; cursor: pointer; }
+        
+        .btn { width: 100%; padding: 10px; background-color: #e53935; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        .btn:hover { background-color: #c62828; }
+        .error { color: red; text-align: center; margin-bottom: 15px; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+<div class="login-box">
+    <h2>後台系統登入</h2>
+    
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST">
+        <div class="input-group">
+            <label for="username">帳號</label>
+            <input type="text" id="username" name="username" required>
+        </div>
+        <div class="input-group">
+            <label for="password">密碼</label>
+            <input type="password" id="password" name="password" required>
+            
+            <label class="show-password-wrapper">
+                <input type="checkbox" onclick="togglePassword()"> 顯示密碼
+            </label>
+        </div>
+        <button type="submit" class="btn">登入</button>
+    </form>
+</div>
+
+<script>
+    function togglePassword() {
+        // 抓取 id 為 password 的輸入框
+        var pwField = document.getElementById("password");
+        // 如果目前是隱藏(password)就改成顯示(text)，反之亦然
+        if (pwField.type === "password") {
+            pwField.type = "text";
+        } else {
+            pwField.type = "password";
+        }
+    }
+</script>
+
+</body>
+</html>

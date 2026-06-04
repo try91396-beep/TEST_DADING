@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}餐廳管理系統{% endblock %}</title>
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+        }
+    </style>
+
+    {% block styles %}{% endblock %}
+</head>
+<body>
+
+    {% if current_username %}
+    <div style="position: fixed; top: 15px; right: 20px; background: white; padding: 8px 15px; border-radius: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 15px; z-index: 9999;">
+        
+        <span style="color: #333; font-weight: bold; font-size: 15px;">[{{ current_role }}] {{ current_username }}</span>
+        
+        <a href="{{ logout_url }}" style="background-color: #dc3545; color: white; text-decoration: none; padding: 5px 15px; border-radius: 15px; font-size: 14px; font-weight: bold; transition: background 0.3s;" onmouseover="this.style.backgroundColor='#c82333'" onmouseout="this.style.backgroundColor='#dc3545'">
+            登出
+        </a>
+    </div>
+    {% endif %}
+
+    <main>
+        {% block content %}
+        {% endblock %}
+    </main>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

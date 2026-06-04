@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+
+{% block title %}資料庫管理後台 (Debug){% endblock %}
+
+{% block styles %}
+<style>
+    .container { max-width: 98%; margin: 20px auto; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    
+    /* 卡片樣式 */
+    .card { background: white; padding: 25px; margin-bottom: 30px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border: 1px solid #e0e0e0; }
+    
+    h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
+    .user-info { font-size: 0.5em; background: #ecf0f1; padding: 5px 15px; border-radius: 20px; color: #7f8c8d; }
+    h2 { color: #2980b9; margin-top: 0; display: flex; align-items: center; gap: 10px; }
+    
+    /* 表格樣式 */
+    .table-wrapper { overflow-x: auto; margin-bottom: 20px; border-radius: 8px; border: 1px solid #dee2e6; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 1000px; }
+    th, td { border: 1px solid #dee2e6; padding: 10px 12px; text-align: left; vertical-align: middle; }
+    
+    /* 表頭與定義區 */
+    th { background-color: #f8f9fa; font-weight: 700; color: #495057; position: sticky; top: 0; z-index: 10; }
+    .col-name { font-size: 1.1em; color: #2c3e50; font-weight: bold; }
+    .badge { display: inline-block; padding: 3px 7px; border-radius: 4px; font-size: 11px; font-weight: 600; color: white; margin-right: 5px; }
+    .badge-type { background-color: #17a2b8; }
+    .badge-pk { background-color: #e74c3c; }
+    
+    /* 編輯功能樣式 */
+    td.editable { cursor: cell; transition: background 0.2s; background-color: #ffffff; }
+    td.editable:hover { background-color: #fffde7; outline: 1px solid #f1c40f; }
+    td.editable:focus { background-color: #fff; outline: 2px solid #3498db; z-index: 5; position: relative; }
+    
+    /* 主鍵不可編輯 */
+    td.pk-cell { background-color: #f1f3f5; color: #2c3e50; font-weight: bold; cursor: not-allowed; }
+    /* 🆕 專屬 settings key 的解釋字體樣式 */
+    .key-hint { display: block; font-size: 11px; color: #6f42c1; font-weight: normal; margin-top: 4px; background: #f3f0fa; padding: 2px 6px; border-radius: 4px; width: fit-content; }
+
+    /* 欄位說明小字 */
+    th small { display: block; color: #6f42c1; font-weight: normal; margin-top: 3px; font-size: 0.8em; opacity: 0.8; }
+
+    /* 狀態 Toast */
+    #toast {
+        position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+        padding: 12px 25px; border-radius: 50px;
+        color: white; font-weight: bold; font-size: 14px;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        display: none; z-index: 10000;
+    }
+    .toast-success { background-color: #27ae60; }
+    .toast-error { background-color: #c0392b; }
+    .toast-loading { background-color: #2980b9; }
+
+    .btn-action { background: #3498db; color: white; padding: 8px 15px; border-radius: 5px; text-decoration: none; font-size: 14px; transition: 0.3s; }
+    .btn-action:hover { background: #2980b9; }
+
+    summary { font-weight: bold; color: #34495e; cursor: pointer; padding: 10px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>
+        <div>🛠️ 資料庫管理員模式 <span style="font-size: 14px; color: #e74c3c;">(僅限開發除錯使用)</span></div>
+        {% if current_user %}
+        <div class="user-info">當前管理員: {{ current_user }} | <a href="/try/logout" style="color: #c0392b;">登出</a></div>
+        {% endif %}
+    </h1>
+
+    <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+        <a href="/try/add_user" class="btn-action">👤 新增員工/管理員帳號</a>
+        <p style="margin: 0; line-height: 35px; color: #7f8c8d;">💡 提示：點擊資料儲存格可直接修改，按下 Enter 儲存。</p>
+    </div>
+
+    {% for table_name, info in db_info.items() %}
+    <div class="card">
+        <h2>📦 Table: {{ table_name }}</h2>
+        
+        <details>
+            <summary>📋 檢視資料表結構 ({{ info.schema|length }} 欄位)</summary>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">#</th>
+                            <th>欄位名稱</th>
+                            <th>中文定義 (來自對照表)</th>
+                            <th>資料型態</th>
+                            <th>允許 Null</th>
+                            <th>預設值</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for col in info.schema %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <span class="col-name">{{ col.name }}</span>
+                                {% if col.name == info.pk_col %}<span class="badge badge-pk">PK</span>{% endif %}
+                            </td>
+                            <td><span style="color: #2c3e50;">{{ col.desc }}</span></td>
+                            <td><span class="badge badge-type">{{ col.type }}</span></td>
+                            <td>{% if col.nullable == 'YES' %}<span style="color:#27ae60;">✔</span>{% else %}<span style="color:#c0392b;">✖</span>{% endif %}</td>
+                            <td><code>{{ col.default or '-' }}</code></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+
+        <div style="margin: 15px 0 10px; font-weight: bold; color: #2c3e50;">🔍 資料內容預覽 (顯示最新 50 筆)</div>
+        <div class="table-wrapper">
+            {% if info.data %}
+            <table class="data-preview-table" 
+                   data-table-name="{{ table_name }}" 
+                   data-pk-name="{{ info.pk_col }}">
+                <thead>
+                    <tr>
+                        {% for col_name in info.column_names %}
+                        <th>
+                            {{ col_name }}
+                            {% set col_desc = '-' %}
+                            {% for s in info.schema %}{% if s.name == col_name %}{% set col_desc = s.desc %}{% endif %}{% endfor %}
+                            <small>{{ col_desc }}</small>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in info.data %}
+                    <tr>
+                        {% for cell in row %}
+                            {% set current_col = info.column_names[loop.index0] %}
+                            
+                            {% if current_col == info.pk_col %}
+                                <td class="pk-cell" data-col-name="{{ current_col }}">
+                                    <span>{{ cell }}</span>
+                                    {# 💡 🆕 核心改動：如果是 settings 資料表，動態去對照表撈出這一列 Key 的中文含意 #}
+                                    {% if table_name == 'settings' and settings_key_map %}
+                                        {% set key_desc = settings_key_map.get(cell) %}
+                                        {% if key_desc %}
+                                            <span class="key-hint">{{ key_desc }}</span>
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
+                            {% else %}
+                                <td class="editable" 
+                                    contenteditable="true" 
+                                    data-col-name="{{ current_col }}"
+                                    onfocus="recordOldValue(this)"
+                                    onblur="submitUpdate(this)"
+                                    onkeydown="checkKey(event, this)">
+                                    {{ cell if cell is not none else '' }}
+                                </td>
+                            {% endif %}
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div style="padding: 20px; text-align: center; color: #bdc3c7;">此資料表目前尚無資料</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div id="toast"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let oldValue = "";
+
+    function recordOldValue(cell) {
+        oldValue = cell.innerText.trim();
+    }
+
+    function checkKey(e, cell) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            cell.blur(); // 觸發失去焦點事件進行儲存
+        }
+    }
+
+    function submitUpdate(cell) {
+        const newValue = cell.innerText.trim();
+        if (newValue === oldValue) return; // 沒有改變則不動作
+
+        const tableEl = cell.closest('table');
+        const tableName = tableEl.dataset.tableName;
+        const pkName = tableEl.dataset.pkName;
+        const colName = cell.dataset.colName;
+        
+        // 抓取同列的 PK 值 (修正：只抓取真正的 text 內容，避開我們新加的中文小標籤)
+        const row = cell.parentElement;
+        const pkCell = row.querySelector(`td[data-col-name="${pkName}"]`);
+        const pkVal = pkCell.querySelector('span').innerText.trim();
+
+        showToast('🔄 正在同步至雲端...', 'toast-loading');
+
+        fetch('/try/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                table: tableName,
+                pk_col: pkName,
+                pk_val: pkVal,
+                column: colName,
+                value: newValue
+            })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                showToast('✅ 變更已儲存', 'toast-success');
+                cell.style.background = '#e8f5e9';
+                setTimeout(() => cell.style.background = '', 1000);
+                oldValue = newValue;
+            } else {
+                showToast('❌ 錯誤: ' + data.error, 'toast-error');
+                cell.innerText = oldValue; // 還原
+            }
+        })
+        .catch(err => {
+            showToast('❌ 網路錯誤', 'toast-error');
+            cell.innerText = oldValue;
+        });
+    }
+
+    function showToast(msg, className) {
+        const toast = document.getElementById('toast');
+        toast.innerText = msg;
+        toast.className = className;
+        toast.style.display = 'block';
+        
+        if (className !== 'toast-loading') {
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 2500);
+        }
+    }
+</script>
+{% endblock %}
