@@ -91,12 +91,13 @@ def init_db():
             ('delivery_fee_per_km', '10'),              # 超過基礎距離後的每公里加價
 
             # --- 🆕 這裡是你新要求新增的店家相關資訊欄位 ---
-            ('shop_name', '我的美味餐廳'),               # 店家名稱
-            ('shop_address', '台北市信義區OO路XX號'),     # 店家地址
-            ('shop_phone', '02-12345678'),             # 店家電話
-            ('shop_open_time', '10:30'),               # 開店時間 (建議使用 24 點制字串，方便前端解析)
-            ('shop_close_time', '20:30'),              # 閉店時間
-            ('shop_logo_url', 'https://example.com/logo.png') # 商標網址 (Logo URL)
+            ('shop_name', '我的美味餐廳'),                       # 店家名稱
+            ('shop_address', '台北市信義區OO路XX號'),            # 店家地址
+            ('shop_phone', '02-12345678'),                      # 店家電話
+            ('shop_open_time', '10:30'),                        # 開店時間 (建議使用 24 點制字串，方便前端解析)
+            ('shop_close_time', '20:30'),                       # 閉店時間
+            ('shop_logo_url', 'https://example.com/logo.png')   # 商標網址 (Logo URL)
+            ('shop_panda_url', 'https://panda.com')             # 外送平台網址
         ]
         
         for k, v in default_settings:

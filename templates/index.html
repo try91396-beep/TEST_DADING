@@ -224,7 +224,14 @@
                     <h6 class="text-outline" style="margin: 0 0 8px 0; color: #d84315; font-size: 0.95em; background: transparent; display: inline-block; font-weight: 900;">滿{{ settings.get('delivery_min_price', '1000') }}可外送 {{ settings.get('delivery_max_km', '1.6') }}km以內</h6>
                     <a href="/delivery/setup" class="delivery-btn delivery-internal">🛵 外送服務 (Delivery)</a>
                 {% else %}
-                    <a href="https://www.foodpanda.com.tw/restaurant/uf01/hong-xing-xiao-chi-dian" target="_blank" class="delivery-btn delivery-panda">🐼 Foodpanda 外送</a>
+                    {% set panda_url = settings.get('shop_panda_url', '') %}
+                    {% if 'foodpanda' in panda_url.lower() %}
+                        <a href="{{ panda_url }}">Foodpanda 外送</a>
+                    {% elif 'ubereats' in panda_url.lower() %}
+                        <a href="{{ panda_url }}">Uber Eats 外送</a>
+                    {% else %}
+                        <a href="{{ panda_url }}">第三方外送平台</a>
+                    {% endif %}
                 {% endif %}
             </div>
 
