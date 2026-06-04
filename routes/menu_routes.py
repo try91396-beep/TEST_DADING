@@ -425,27 +425,79 @@ def order_success():
     """, (oid,))
     row = cur.fetchone()
     
-    # ==========================================
-    # 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
-    # ==========================================
-    cur.execute("""
-        SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
-        FROM products
-    """)
-    product_map = {}
+# ==========================================
+# 2. 讀取所有產品的客製化選項 (建立動態翻譯字典)
+# ==========================================
+cur.execute("""
+    SELECT name, custom_options, custom_options_en, custom_options_jp, custom_options_kr 
+    FROM products
+""")
+product_map = {}
+
+def parse_advanced_opts(opt_str):
+    if not opt_str: 
+        return []
+        
+    results = []
+    
+    # 步驟 1：利用正規表示式找出 數字(...), (...), {...} 或者是普通的 逗號分隔文字
+    # 這個 Pattern 可以精準切分這幾種語法
+    pattern = r'(\d*\(.*?\))|(\{.*?\})|([^,]+)'
+    matches = re.findall(pattern, opt_str)
+    
+    for chk, rad, plain in matches:
+        # 處理 Checkbox 群組，例如 "2(不要蔥油,少蔥油)" 或 "(不要蔥油)"
+        if chk:
+            chk = chk.strip()
+            # 提取括號內的文字
+            inner = re.search(r'\((.*?)\)', chk).group(1)
+            options = [o.strip() for o in inner.split(',') if o.strip()]
+            
+            # 提取前面的數字，若沒有則預設為 1
+            num_match = re.match(r'^(\d+)', chk)
+            max_select = int(num_match.group(1)) if num_match else 1
+            
+            results.append({
+                "type": "checkbox",
+                "max_select": max_select,
+                "required": False,
+                "options": options
+            })
+            
+        # 處理 Radiobox 群組，例如 "{不要韭菜,少韭菜,韭菜多}"
+        elif rad:
+            rad = rad.strip()
+            inner = re.search(r'\{(.*?)\}', rad).group(1)
+            options = [o.strip() for o in inner.split(',') if o.strip()]
+            
+            results.append({
+                "type": "radio",
+                "max_select": 1,
+                "required": True,
+                "options": options
+            })
+            
+        # 處理一般單一選項，例如 "加大：+20" 或 "用袋子裝"
+        elif plain:
+            plain_txt = plain.strip()
+            if plain_txt:  # 確保不是空白
+                results.append({
+                    "type": "checkbox",
+                    "max_select": 1,
+                    "required": False,
+                    "options": [plain_txt]
+                })
+                
+    return results
+
     for p_row in cur.fetchall():
         p_name = p_row[0]
         
-        # 輔助函式：切分逗號字串，過濾空白
-        def split_opts(opt_str):
-            if not opt_str: return []
-            return [o.strip() for o in opt_str.split(',') if o.strip()]
-        
         product_map[p_name] = {
-            'zh': split_opts(p_row[1]),
-            'en': split_opts(p_row[2]),
-            'jp': split_opts(p_row[3]),
-            'kr': split_opts(p_row[4])
+            'zh': parse_advanced_opts(p_row[1]),
+            'en': parse_advanced_opts(p_row[2]),
+            'jp': parse_advanced_opts(p_row[3]),
+            'kr': parse_advanced_opts(p_row[4])
         }
         
     cur.close()
