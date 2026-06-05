@@ -82,6 +82,8 @@ def init_db():
         # 4. 插入預設設定 (新增了 shop_open 與其他外送參數)
         default_settings = [
             ('sender_email', 'onboarding@resend.dev'), # 預設發信人郵件
+            ('report_email', 'onboarding@resend.dev'), # 預設收信人郵件
+            ('resend_api_key', ''),                    # resend_api_key
             ('shop_open', '1'),                        # 預設全店營業中 (1: 開啟)
             ('delivery_enabled', '1'),                 # 是否啟用外送功能 (後端用)
             ('enable_delivery', '1'),                  # 前端按鈕可能使用的 key (保持相容)
@@ -91,6 +93,7 @@ def init_db():
             ('delivery_fee_per_km', '10'),              # 超過基礎距離後的每公里加價
 
             # --- 🆕 這裡是你新要求新增的店家相關資訊欄位 ---
+            
             ('shop_name', '我的美味餐廳'),                       # 店家名稱
             ('shop_address', '台北市信義區OO路XX號'),            # 店家地址
             ('shop_phone', '02-12345678'),                      # 店家電話

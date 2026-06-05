@@ -81,20 +81,33 @@ def admin_panel():
         # --- 功能 1: 儲存一般設定 & 測試連線 ---
         if action == 'save_settings' or action == 'test_email':
             try:
+                # 1. 先從資料庫讀取目前的最新設定作為基底
+                cur.execute("SELECT key, value FROM settings")
+                current_db_config = dict(cur.fetchall())
+
+                # 2. 建立新設定字典，若前端沒給，自動沿用資料庫舊值（或給預設值）
+                def get_safe_val(field_name, default_val=''):
+                    form_val = request.form.get(field_name)
+                    # 如果前端表單根本沒傳，或傳來空字串，就沿用資料庫舊值
+                    if form_val is None or form_val.strip() == '':
+                        return current_db_config.get(field_name, default_val)
+                    return form_val.strip()
+
                 new_config = {
-                    'report_email': request.form.get('report_email'),
-                    'resend_api_key': request.form.get('resend_api_key'),
-                    'sender_email': request.form.get('sender_email') or 'onboarding@resend.dev', #
-                    'shop_logo_url': request.form.get('shop_logo_url') or '',                     
-                    'shop_name': request.form.get('shop_name') or '',
-                    'shop_address': request.form.get('shop_address') or '',
-                    'shop_phone': request.form.get('shop_phone') or '',
-                    'shop_open_time': request.form.get('shop_open_time') or '',
-                    'shop_close_time': request.form.get('shop_close_time') or '',
-                    'shop_open_advance_hours': request.form.get('shop_open_advance_hours') or '',
-                    'shop_close_delay_hours': request.form.get('shop_close_delay_hours') or ''
+                    'report_email': get_safe_val('report_email'),
+                    'resend_api_key': get_safe_val('resend_api_key'), # 🛡️ 安全盾牌：沒傳就不會覆蓋！
+                    'sender_email': get_safe_val('sender_email', 'onboarding@resend.dev'),
+                    'shop_logo_url': get_safe_val('shop_logo_url'),                     
+                    'shop_name': get_safe_val('shop_name'),
+                    'shop_address': get_safe_val('shop_address'),
+                    'shop_phone': get_safe_val('shop_phone'),
+                    'shop_open_time': get_safe_val('shop_open_time'),
+                    'shop_close_time': get_safe_val('shop_close_time'),
+                    'shop_open_advance_hours': get_safe_val('shop_open_advance_hours'),
+                    'shop_close_delay_hours': get_safe_val('shop_close_delay_hours')
                 }
 
+                # 3. 安全更新至資料庫
                 for k, v in new_config.items():
                     cur.execute("""
                         INSERT INTO settings (key, value) 
@@ -108,7 +121,6 @@ def admin_panel():
                 if should_test:
                     try:
                         app_obj = current_app._get_current_object()
-                        # 測試信同樣傳入目前人員資訊
                         result_msg = send_daily_report(
                             app_obj, 
                             manual_config=new_config, 
@@ -136,17 +148,13 @@ def admin_panel():
             
             return redirect(url_for('admin.admin_panel', msg=msg))
 
-        # --- 功能 2: 手動觸發日結報表 (修正後的人員邏輯) ---
+        # --- 功能 2: 手動觸發日結報表 ---
         elif action == 'send_report_now':
             try:
                 app_obj = current_app._get_current_object()
-                
-                # 💡 關鍵修正：在啟動 Thread 之前，先從當前的 Request 中抓取 Session 姓名
-                # 這樣背景執行緒 (Thread) 就能直接拿到名字，不需要再去翻 Session
                 current_user = session.get('username', '未知管理員')
                 current_role = session.get('role', 'admin')
 
-                # 將姓名與角色透過 kwargs 傳入 send_daily_report
                 threading.Thread(
                     target=send_daily_report, 
                     args=(app_obj,), 
@@ -210,7 +218,6 @@ def admin_panel():
         config.setdefault('delivery_max_km', '5')
         config.setdefault('delivery_fee_per_km', '10')
         config.setdefault('shop_panda_url', '')
-        
 
         cur.execute("""
             SELECT id, name, price, category, is_available, print_category, sort_order, image_url, 
@@ -223,7 +230,6 @@ def admin_panel():
         cur.close(); conn.close()
     
     return render_template('admin.html', config=config, prods=prods, msg=msg)
-
 
 # ==========================================
 # 外送詳細設定 (表單提交)
