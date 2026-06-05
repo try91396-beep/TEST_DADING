@@ -90,7 +90,9 @@ def admin_panel():
                     'shop_address': request.form.get('shop_address') or '',
                     'shop_phone': request.form.get('shop_phone') or '',
                     'shop_open_time': request.form.get('shop_open_time') or '',
-                    'shop_close_time': request.form.get('shop_close_time') or ''
+                    'shop_close_time': request.form.get('shop_close_time') or '',
+                    'shop_open_advance_hours': request.form.get('shop_open_advance_hours') or '',
+                    'shop_close_delay_hours': request.form.get('shop_close_delay_hours') or ''
                 }
 
                 for k, v in new_config.items():
@@ -248,7 +250,9 @@ def update_delivery_settings():
             'shop_address': request.form.get('shop_address') or '10',
             'shop_phone': request.form.get('shop_phone') or '10',
             'shop_open_time': request.form.get('shop_open_time') or '10',
-            'shop_close_time': request.form.get('shop_close_time') or '10'
+            'shop_close_time': request.form.get('shop_close_time') or '10',
+            'shop_open_advance_hours': request.form.get('shop_open_advance_hours') or '',
+            'shop_close_delay_hours': request.form.get('shop_close_delay_hours') or ''
         }
 
         for key, val in settings_to_update.items():
