@@ -11,7 +11,7 @@
     
     h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 15px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
     .user-info { font-size: 0.5em; background: #ecf0f1; padding: 5px 15px; border-radius: 20px; color: #7f8c8d; }
-    h2 { color: #2980b9; margin-top: 0; display: flex; align-items: center; gap: 10px; }
+    h2 { color: #2980b9; margin-top: 0; display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
     
     /* 表格樣式 */
     .table-wrapper { overflow-x: auto; margin-bottom: 20px; border-radius: 8px; border: 1px solid #dee2e6; }
@@ -32,7 +32,6 @@
     
     /* 主鍵不可編輯 */
     td.pk-cell { background-color: #f1f3f5; color: #2c3e50; font-weight: bold; cursor: not-allowed; }
-    /* 🆕 專屬 settings key 的解釋字體樣式 */
     .key-hint { display: block; font-size: 11px; color: #6f42c1; font-weight: normal; margin-top: 4px; background: #f3f0fa; padding: 2px 6px; border-radius: 4px; width: fit-content; }
 
     /* 欄位說明小字 */
@@ -53,7 +52,11 @@
     .btn-action { background: #3498db; color: white; padding: 8px 15px; border-radius: 5px; text-decoration: none; font-size: 14px; transition: 0.3s; }
     .btn-action:hover { background: #2980b9; }
 
-    summary { font-weight: bold; color: #34495e; cursor: pointer; padding: 10px 0; }
+    /* 調整 details 摺疊區塊的質感 */
+    details { background: #f8f9fa; padding: 10px 15px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #e2e8f0; }
+    details[open] { background: #ffffff; }
+    summary { font-weight: bold; color: #34495e; cursor: pointer; padding: 5px 0; user-select: none; outline: none; }
+    summary:hover { color: #2980b9; }
 </style>
 {% endblock %}
 
@@ -68,7 +71,7 @@
 
     <div style="margin-bottom: 20px; display: flex; gap: 10px;">
         <a href="/try/add_user" class="btn-action">👤 新增員工/管理員帳號</a>
-        <p style="margin: 0; line-height: 35px; color: #7f8c8d;">💡 提示：點擊資料儲存格可直接修改，按下 Enter 儲存。</p>
+        <p style="margin: 0; line-height: 35px; color: #7f8c8d;">💡 提示：點擊摺疊選單展開內容，點擊資料儲存格可直接修改並按 Enter 儲存。</p>
     </div>
 
     {% for table_name, info in db_info.items() %}
@@ -76,8 +79,8 @@
         <h2>📦 Table: {{ table_name }}</h2>
         
         <details>
-            <summary>📋 檢視資料表結構 ({{ info.schema|length }} 欄位)</summary>
-            <div class="table-wrapper">
+            <summary>📋 檢視資料表結構 ({{ info.schema|length }} 個欄位定義)</summary>
+            <div class="table-wrapper" style="margin-top: 10px;">
                 <table>
                     <thead>
                         <tr>
@@ -108,60 +111,61 @@
             </div>
         </details>
 
-        <div style="margin: 15px 0 10px; font-weight: bold; color: #2c3e50;">🔍 資料內容預覽 (顯示最新 50 筆)</div>
-        <div class="table-wrapper">
-            {% if info.data %}
-            <table class="data-preview-table" 
-                   data-table-name="{{ table_name }}" 
-                   data-pk-name="{{ info.pk_col }}">
-                <thead>
-                    <tr>
-                        {% for col_name in info.column_names %}
-                        <th>
-                            {{ col_name }}
-                            {% set col_desc = '-' %}
-                            {% for s in info.schema %}{% if s.name == col_name %}{% set col_desc = s.desc %}{% endif %}{% endfor %}
-                            <small>{{ col_desc }}</small>
-                        </th>
-                        {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in info.data %}
-                    <tr>
-                        {% for cell in row %}
-                            {% set current_col = info.column_names[loop.index0] %}
-                            
-                            {% if current_col == info.pk_col %}
-                                <td class="pk-cell" data-col-name="{{ current_col }}">
-                                    <span>{{ cell }}</span>
-                                    {# 💡 🆕 核心改動：如果是 settings 資料表，動態去對照表撈出這一列 Key 的中文含意 #}
-                                    {% if table_name == 'settings' and settings_key_map %}
-                                        {% set key_desc = settings_key_map.get(cell) %}
-                                        {% if key_desc %}
-                                            <span class="key-hint">{{ key_desc }}</span>
+        <details>
+            <summary>🔍 檢視資料內容預覽 (顯示最新 50 筆，可直接點擊修改)</summary>
+            <div class="table-wrapper" style="margin-top: 10px;">
+                {% if info.data %}
+                <table class="data-preview-table" 
+                       data-table-name="{{ table_name }}" 
+                       data-pk-name="{{ info.pk_col }}">
+                    <thead>
+                        <tr>
+                            {% for col_name in info.column_names %}
+                            <th>
+                                {{ col_name }}
+                                {% set col_desc = '-' %}
+                                {% for s in info.schema %}{% if s.name == col_name %}{% set col_desc = s.desc %}{% endif %}{% endfor %}
+                                <small>{{ col_desc }}</small>
+                            </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in info.data %}
+                        <tr>
+                            {% for cell in row %}
+                                {% set current_col = info.column_names[loop.index0] %}
+                                
+                                {% if current_col == info.pk_col %}
+                                    <td class="pk-cell" data-col-name="{{ current_col }}">
+                                        <span>{{ cell }}</span>
+                                        {% if table_name == 'settings' and settings_key_map %}
+                                            {% set key_desc = settings_key_map.get(cell) %}
+                                            {% if key_desc %}
+                                                <span class="key-hint">{{ key_desc }}</span>
+                                            {% endif %}
                                         {% endif %}
-                                    {% endif %}
-                                </td>
-                            {% else %}
-                                <td class="editable" 
-                                    contenteditable="true" 
-                                    data-col-name="{{ current_col }}"
-                                    onfocus="recordOldValue(this)"
-                                    onblur="submitUpdate(this)"
-                                    onkeydown="checkKey(event, this)">
-                                    {{ cell if cell is not none else '' }}
-                                </td>
-                            {% endif %}
+                                    </td>
+                                {% else %}
+                                    <td class="editable" 
+                                        contenteditable="true" 
+                                        data-col-name="{{ current_col }}"
+                                        onfocus="recordOldValue(this)"
+                                        onblur="submitUpdate(this)"
+                                        onkeydown="checkKey(event, this)">
+                                        {{ cell if cell is not none else '' }}
+                                    </td>
+                                {% endif %}
+                            {% endfor %}
+                        </tr>
                         {% endfor %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <div style="padding: 20px; text-align: center; color: #bdc3c7;">此資料表目前尚無資料</div>
-            {% endif %}
-        </div>
+                    </tbody>
+                </table>
+                {% else %}
+                <div style="padding: 20px; text-align: center; color: #bdc3c7;">此資料表目前尚無資料</div>
+                {% endif %}
+            </div>
+        </details>
     </div>
     {% endfor %}
 </div>
@@ -180,20 +184,19 @@
     function checkKey(e, cell) {
         if (e.key === 'Enter') {
             e.preventDefault();
-            cell.blur(); // 觸發失去焦點事件進行儲存
+            cell.blur(); 
         }
     }
 
     function submitUpdate(cell) {
         const newValue = cell.innerText.trim();
-        if (newValue === oldValue) return; // 沒有改變則不動作
+        if (newValue === oldValue) return; 
 
         const tableEl = cell.closest('table');
         const tableName = tableEl.dataset.tableName;
         const pkName = tableEl.dataset.pkName;
         const colName = cell.dataset.colName;
         
-        // 抓取同列的 PK 值 (修正：只抓取真正的 text 內容，避開我們新加的中文小標籤)
         const row = cell.parentElement;
         const pkCell = row.querySelector(`td[data-col-name="${pkName}"]`);
         const pkVal = pkCell.querySelector('span').innerText.trim();
@@ -220,7 +223,7 @@
                 oldValue = newValue;
             } else {
                 showToast('❌ 錯誤: ' + data.error, 'toast-error');
-                cell.innerText = oldValue; // 還原
+                cell.innerText = oldValue; 
             }
         })
         .catch(err => {
