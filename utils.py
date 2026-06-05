@@ -237,34 +237,33 @@ def run_maintenance_tasks(app):
                             raw_open_time = val
                         elif key == 'shop_close_time':
                             raw_close_time = val
-                        elif key == 'shop_open_advance_hours':
+                        elif key == 'shop_open_advance_hours': # 欄位名稱不變，把它當「分鐘」解析
                             try:
-                                open_advance_hours = int(val) # 確保轉成整數
+                                open_advance_minutes = int(val) # 轉成整數分鐘
                             except ValueError:
-                                pass
+                                open_advance_minutes = 60 # 失敗的話防呆預設為 60 分鐘
                         elif key == 'shop_close_delay_hours':
                             try:
-                                close_delay_hours = int(val) # 確保轉成整數
+                                close_delay_minutes = int(val)  # 轉成整數分鐘
                             except ValueError:
-                                pass
+                                close_delay_minutes = 60
                 conn.close()
             except Exception as db_err:
                 print(f"[{now_str}] ⚠️ 讀取動態營業設定失敗，使用備用預設值: {db_err}")
             
-            # --- 💡 核心邏輯：依照資料庫抓到的時數進行增減 ---
+           # --- 💡 核心邏輯：依照資料庫抓到的「分鐘數」進行增減 ---
             try:
-                # 處理開店時間 (提早 open_advance_hours 小時)
+                # 處理開店時間 (提早幾分鐘)
                 open_dt = datetime.strptime(raw_open_time, "%H:%M")
-                shop_open_time = (open_dt - timedelta(hours=open_advance_hours)).strftime("%H:%M")
+                shop_open_time = (open_dt - timedelta(minutes=open_advance_minutes)).strftime("%H:%M") # 💡 改為 minutes
                 
-                # 處理閉店時間 (延後 close_delay_hours 小時)
+                # 處理閉店時間 (延後幾分鐘)
                 close_dt = datetime.strptime(raw_close_time, "%H:%M")
-                shop_close_time = (close_dt + timedelta(hours=close_delay_hours)).strftime("%H:%M")
+                shop_close_time = (close_dt + timedelta(minutes=close_delay_minutes)).strftime("%H:%M") # 💡 改為 minutes
             except Exception as time_err:
-                # 防呆機制
                 shop_open_time = "08:00"
                 shop_close_time = "22:00"
-                print(f"[{now_str}] ⚠️ 時間格式解析失敗，啟用手動計算防呆值 ({shop_open_time}/{shop_close_time}): {time_err}")
+                print(f"[{now_str}] ⚠️ 時間格式解析失敗，啟用手動計算防呆值")
             
             
             # =====================================================================
