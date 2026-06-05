@@ -211,10 +211,10 @@ def run_maintenance_tasks(app):
             last_auto_open_date = ""
             last_auto_close_date = ""
 
-            now = datetime.utcnow() + timedelta(hours=8)
+            
             
             # 取得當前時間與日期
-            now = datetime.now()
+            now = datetime.utcnow() + timedelta(hours=8)
             current_hm = now.strftime("%H:%M")          # "09:01"
             current_date = now.strftime("%Y-%m-%d")      # "2026-06-05"
             current_weekday = now.weekday()             # 0=週一, ..., 5=週六
