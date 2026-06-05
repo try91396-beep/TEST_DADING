@@ -204,35 +204,77 @@ def run_maintenance_tasks(app):
 
             # --- 🏪 B. 每日定時強寫 shop_open 狀態 ---
             # =====================================================================
-            # 1. 動態從資料庫讀取設定的營業時間（加上預設值防呆，萬一資料庫讀取失敗時使用）
+            # 1. 動態從資料庫讀取設定的營業時間與偏移時數
             # =====================================================================
-            shop_open_time = "09:00"
-            shop_close_time = "21:00"
+            from datetime import datetime, timedelta
+            
+            # 設定基礎預設值
+            raw_open_time = "09:00"
+            raw_close_time = "21:00"
+            open_advance_hours = 1  # 預設開店提早 1 小時
+            close_delay_hours = 1   # 預設閉店延後 1 小時
             
             try:
                 conn = get_db_connection()
                 with conn.cursor() as cur:
-                    cur.execute("SELECT key, value FROM settings WHERE key IN ('shop_open_time', 'shop_close_time');")
+                    # 💡 SQL 查詢加入我們新增的兩個變數 key
+                    cur.execute("""
+                        SELECT key, value FROM settings 
+                        WHERE key IN (
+                            'shop_open_time', 
+                            'shop_close_time', 
+                            'shop_open_advance_hours', 
+                            'shop_close_delay_hours'
+                        );
+                    """)
                     rows = cur.fetchall()
                     for key, val in rows:
-                        if key == 'shop_open_time' and val:
-                            shop_open_time = val.strip()
-                        elif key == 'shop_close_time' and val:
-                            shop_close_time = val.strip()
+                        val = val.strip()
+                        if not val:
+                            continue
+                            
+                        if key == 'shop_open_time':
+                            raw_open_time = val
+                        elif key == 'shop_close_time':
+                            raw_close_time = val
+                        elif key == 'shop_open_advance_hours':
+                            try:
+                                open_advance_hours = int(val) # 確保轉成整數
+                            except ValueError:
+                                pass
+                        elif key == 'shop_close_delay_hours':
+                            try:
+                                close_delay_hours = int(val) # 確保轉成整數
+                            except ValueError:
+                                pass
                 conn.close()
             except Exception as db_err:
-                print(f"[{now_str}] ⚠️ 讀取動態營業時間失敗，使用備用預設值 ({shop_open_time}/{shop_close_time}): {db_err}")
+                print(f"[{now_str}] ⚠️ 讀取動態營業設定失敗，使用備用預設值: {db_err}")
+            
+            # --- 💡 核心邏輯：依照資料庫抓到的時數進行增減 ---
+            try:
+                # 處理開店時間 (提早 open_advance_hours 小時)
+                open_dt = datetime.strptime(raw_open_time, "%H:%M")
+                shop_open_time = (open_dt - timedelta(hours=open_advance_hours)).strftime("%H:%M")
+                
+                # 處理閉店時間 (延後 close_delay_hours 小時)
+                close_dt = datetime.strptime(raw_close_time, "%H:%M")
+                shop_close_time = (close_dt + timedelta(hours=close_delay_hours)).strftime("%H:%M")
+            except Exception as time_err:
+                # 防呆機制
+                shop_open_time = "08:00"
+                shop_close_time = "22:00"
+                print(f"[{now_str}] ⚠️ 時間格式解析失敗，啟用手動計算防呆值 ({shop_open_time}/{shop_close_time}): {time_err}")
             
             
             # =====================================================================
-            # 2. 使用動態時間變數進行 current_hm 判斷
+            # 2. 使用動態時間變數進行 current_hm 判斷 (下方邏輯完全不用動)
             # =====================================================================
             if current_hm == shop_open_time and current_hm != last_shop_toggle_time:
-                # 💡 判斷：如果是週六(5)，強制寫入 '0'；其他日子強制寫入 '1'
                 target_val = '0' if current_weekday == 5 else '1'
                 log_text = "台灣時間週六，強制設定 shop_open = 0 (不開門)" if current_weekday == 5 else "強制設定 shop_open = 1"
                 
-                print(f"[{current_hm}] 🏪 開店時間到！{log_text}")
+                print(f"[{current_hm}] 🏪 開店時間到！(表定 {raw_open_time}，已提早 {open_advance_hours} 小時) {log_text}")
                 try:
                     conn = get_db_connection()
                     with conn.cursor() as cur:
@@ -243,13 +285,13 @@ def run_maintenance_tasks(app):
                     conn.commit()
                     conn.close()
                     
-                    last_shop_toggle_time = current_hm  # 標記此分鐘已處理過
+                    last_shop_toggle_time = current_hm
                     print(f"[{now_str}] 🏪 已成功寫入 shop_open = {target_val}")
                 except Exception as db_err:
                     print(f"[{now_str}] ❌ 更新 shop_open={target_val} 失敗: {db_err}")
             
             elif current_hm == shop_close_time and current_hm != last_shop_toggle_time:
-                print(f"[{current_hm}] 🏪 閉店時間到！強制設定 shop_open = 0")
+                print(f"[{current_hm}] 🏪 閉店時間到！(表定 {raw_close_time}，已延後 {close_delay_hours} 小時) 強制設定 shop_open = 0")
                 try:
                     conn = get_db_connection()
                     with conn.cursor() as cur:
@@ -260,7 +302,7 @@ def run_maintenance_tasks(app):
                     conn.commit()
                     conn.close()
                     
-                    last_shop_toggle_time = current_hm  # 標記此分鐘已處理過
+                    last_shop_toggle_time = current_hm
                     print(f"[{now_str}] 🏪 已寫入 shop_open = 0")
                 except Exception as db_err:
                     print(f"[{now_str}] ❌ 更新 shop_open=0 失敗: {db_err}")
