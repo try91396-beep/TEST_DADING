@@ -96,9 +96,9 @@ def init_db():
             ('shop_phone', '02-12345678'),                      # 店家電話
             ('shop_open_time', '10:30'),                        # 開店時間 (建議使用 24 點制字串，方便前端解析)
             ('shop_close_time', '20:30'),                       # 閉店時間
-            ('shop_logo_url', 'https://example.com/logo.png')   # 商標網址 (Logo URL)
-            ('shop_panda_url', 'https://panda.com')             # 外送平台網址
-            ('shop_open_advance_hours', '1')                    # 提早開店
+            ('shop_logo_url', 'https://example.com/logo.png'),  # 商標網址 (Logo URL)
+            ('shop_panda_url', 'https://panda.com'),            # 外送平台網址
+            ('shop_open_advance_hours', '1'),                   # 提早開店
             ('shop_close_delay_hours', '1')                     # 延後關店
         ]
         
