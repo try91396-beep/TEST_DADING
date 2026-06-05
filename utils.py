@@ -210,6 +210,8 @@ def run_maintenance_tasks(app):
             shop_close_time = "21:00"
             last_auto_open_date = ""
             last_auto_close_date = ""
+
+            now = datetime.utcnow() + timedelta(hours=8)
             
             # 取得當前時間與日期
             now = datetime.now()
