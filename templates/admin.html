@@ -346,14 +346,14 @@
                 <input type="number" 
                        name="shop_open_advance_hours" 
                        value="{{ config.get('shop_open_advance_hours', '1') }}" 
-                       min="0" max="24"
-                       placeholder=請輸入1~24>
+                       min="0" max="1440"
+                       placeholder=請輸入分鐘，建議不要隔日>
                  <label>延後閉店時間</label>
                  <input type="number" 
                        name="shop_close_delay_hours" 
                        value="{{ config.get('shop_close_delay_hours', '1') }}" 
-                       min="0" max="24"
-                       placeholder=請輸入1~24>
+                       min="0" max="1440"
+                       placeholder=請輸入分鐘，建議不要隔日>
                 
                 <div style="margin-top: 25px;">
                     <button type="submit" name="action" value="save_settings">💾 儲存設定</button>
