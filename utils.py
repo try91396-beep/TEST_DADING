@@ -201,23 +201,26 @@ def run_maintenance_tasks(app):
                 print(f"[{current_hm}] ⏰ 執行自動發信...")
                 send_daily_report(app)
                 last_sent_time = current_hm
-
+                
             # --- 🏪 B. 每日定時強寫 shop_open 狀態 ---
             # =====================================================================
             # 1. 動態從資料庫讀取設定的營業時間與偏移時數
             # =====================================================================
-            from datetime import datetime, timedelta
             
-            # 設定基礎預設值
+            # 💡 修正 1：統一預設值變數名稱，直接初始化為 minutes，徹底避免 NameError
             raw_open_time = "09:00"
             raw_close_time = "21:00"
-            open_advance_hours = 1  # 預設開店提早 1 小時
-            close_delay_hours = 1   # 預設閉店延後 1 小時
+            open_advance_minutes = 60  # 預設開店提早 60 分鐘 (1小時)
+            close_delay_minutes = 60   # 預設閉店延後 60 分鐘 (1小時)
             
+            # 💡 修正 2：確保 now_str 有被定義（若外部已有可自行刪除此行）
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            conn = None
             try:
                 conn = get_db_connection()
                 with conn.cursor() as cur:
-                    # 💡 SQL 查詢加入我們新增的兩個變數 key
+                    # SQL 查詢加入我們新增的兩個變數 key
                     cur.execute("""
                         SELECT key, value FROM settings 
                         WHERE key IN (
@@ -229,6 +232,8 @@ def run_maintenance_tasks(app):
                     """)
                     rows = cur.fetchall()
                     for key, val in rows:
+                        if val is None:
+                            continue
                         val = val.strip()
                         if not val:
                             continue
@@ -241,30 +246,37 @@ def run_maintenance_tasks(app):
                             try:
                                 open_advance_minutes = int(val) # 轉成整數分鐘
                             except ValueError:
-                                open_advance_minutes = 60 # 失敗的話防呆預設為 60 分鐘
+                                pass # 💡 轉型失敗就維持預設的 60 分鐘，不需額外給值
                         elif key == 'shop_close_delay_hours':
                             try:
                                 close_delay_minutes = int(val)  # 轉成整數分鐘
                             except ValueError:
-                                close_delay_minutes = 60
-                conn.close()
+                                pass # 💡 轉型失敗就維持預設的 60 分鐘，不需額外給值
             except Exception as db_err:
                 print(f"[{now_str}] ⚠️ 讀取動態營業設定失敗，使用備用預設值: {db_err}")
+            finally:
+                # 💡 修正 3：不論 try 成功或失敗，都一定會執行 finally，確保連線被關閉
+                if conn:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
             
-           # --- 💡 核心邏輯：依照資料庫抓到的「分鐘數」進行增減 ---
+            # --- 💡 核心邏輯：依照資料庫抓到的「分鐘數」進行增減 ---
             try:
                 # 處理開店時間 (提早幾分鐘)
                 open_dt = datetime.strptime(raw_open_time, "%H:%M")
-                shop_open_time = (open_dt - timedelta(minutes=open_advance_minutes)).strftime("%H:%M") # 💡 改為 minutes
+                shop_open_time = (open_dt - timedelta(minutes=open_advance_minutes)).strftime("%H:%M")
                 
                 # 處理閉店時間 (延後幾分鐘)
                 close_dt = datetime.strptime(raw_close_time, "%H:%M")
-                shop_close_time = (close_dt + timedelta(minutes=close_delay_minutes)).strftime("%H:%M") # 💡 改為 minutes
+                shop_close_time = (close_dt + timedelta(minutes=close_delay_minutes)).strftime("%H:%M")
             except Exception as time_err:
+                # 只有當時間格式真的壞掉（例如資料庫存成 "ABC"）才會走到這一步
                 shop_open_time = "08:00"
                 shop_close_time = "22:00"
-                print(f"[{now_str}] ⚠️ 時間格式解析失敗，啟用手動計算防呆值")
-            
+                print(f"[{now_str}] ⚠️ 時間格式解析失敗，啟用手動計算防呆值: {time_err}")
+                        
             
             # =====================================================================
             # 2. 使用動態時間變數進行 current_hm 判斷 (下方邏輯完全不用動)
