@@ -323,7 +323,7 @@ def export_salary():
 # 📋 管理員功能：查詢員工薪資
 # ==========================================
 
-@webclock.route('/admin/records', methods=['GET'])
+@webclock_bp.route('/admin/records', methods=['GET'])
 def admin_records():
     # 權限檢查
     if session.get('role') != 'admin':
