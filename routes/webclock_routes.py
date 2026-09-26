@@ -84,24 +84,63 @@ def punch():
     cur = conn.cursor()
     try:
         if action == 'in':
+            # 1. 防重複打卡：檢查是否尚有未結算（未下班）的打卡紀錄
+            cur.execute("""
+                SELECT id, clock_in 
+                FROM clock_records 
+                WHERE user_id = %s AND clock_out IS NULL 
+                ORDER BY clock_in DESC 
+                LIMIT 1
+            """, (user_id,))
+            active_record = cur.fetchone()
+            
+            if active_record:
+                return jsonify({
+                    "success": False, 
+                    "error": "您目前已有進行中的班次（尚未打下班卡），請先打下班卡後再重新上班！"
+                }), 400
+            
+            # 2. 確認無進行中班次後，新增本次上班打卡
             cur.execute("""
                 INSERT INTO clock_records (user_id, work_date, clock_in) 
-                VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING id
+                VALUES (%s, %s, %s) RETURNING id
             """, (user_id, today, now))
+            
         elif action == 'out':
-            cur.execute("SELECT clock_in FROM clock_records WHERE user_id = %s AND work_date = %s", (user_id, today))
+            # 1. 支援跨夜班：不限定 work_date，精確尋找最新一筆未下班的紀錄
+            cur.execute("""
+                SELECT id, clock_in 
+                FROM clock_records 
+                WHERE user_id = %s AND clock_out IS NULL 
+                ORDER BY clock_in DESC 
+                LIMIT 1
+            """, (user_id,))
+            
             result = cur.fetchone()
             
-            if result and result[0]:
-                clock_in = result[0]
+            if result:
+                record_id, clock_in = result[0], result[1]
                 hours = (now - clock_in).total_seconds() / 3600
+                
+                # 防呆保護：若超過 36 小時未下班，阻擋並引導走補打卡流程
+                if hours > 36:
+                    return jsonify({
+                        "success": False, 
+                        "error": "距離上次打卡已超過 36 小時，請聯絡管理員或申請補打卡！"
+                    }), 400
+
+                # 2. 更新該筆進行中紀錄的下班時間與總工時
                 cur.execute("""
-                    UPDATE clock_records SET clock_out = %s, work_hours = %s 
-                    WHERE user_id = %s AND work_date = %s
-                """, (now, round(hours, 2), user_id, today))
+                    UPDATE clock_records 
+                    SET clock_out = %s, work_hours = %s 
+                    WHERE id = %s
+                """, (now, round(hours, 2), record_id))
+            else:
+                return jsonify({"success": False, "error": "找不到進行中的上班打卡紀錄！"}), 400
                 
         conn.commit()
         return jsonify({"success": True})
+        
     except Exception as e:
         conn.rollback()
         return jsonify({"success": False, "error": str(e)}), 500
