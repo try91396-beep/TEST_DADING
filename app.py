@@ -3,7 +3,7 @@ from flask import Flask
 from database import init_db
 
 # 引用原本的路由
-from routes import menu_bp, kitchen_bp, admin_bp, delivery_bp
+from routes import menu_bp, kitchen_bp, admin_bp, delivery_bp,webclock_bp
 
 # --- 新增引用：引用剛剛建立的 try_routes (資料庫檢視功能) ---
 from routes.try_routes import try_bp 
