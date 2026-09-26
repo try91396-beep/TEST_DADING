@@ -166,7 +166,6 @@ def my_records():
         cur.execute("SELECT hourly_wage, salary_type, monthly_wage FROM users WHERE id = %s", (user_id,))
         user_row = cur.fetchone()
         
-        # 修正：none 改為大寫 None
         salary_type = user_row[1] if user_row and user_row[1] else 'hourly'
         hourly_wage = float(user_row[0]) if user_row and user_row[0] is not None else 183.0
         monthly_wage = float(user_row[2]) if user_row and user_row[2] is not None else 27470.0
@@ -211,6 +210,10 @@ def my_records():
         cur.close()
         conn.close()
 
+# ==========================================
+# 📋 申請單提交與審核管理 API
+# ==========================================
+
 @webclock_bp.route('/requests', methods=['POST'])
 @login_required
 def submit_request():
@@ -218,12 +221,14 @@ def submit_request():
     user_id = session['user_id']
     data = request.json or {}
     
-    request_type = data.get('request_type') # 'missed_punch' 或 'leave'
-    target_date = data.get('target_date')
+    request_type = data.get('request_type')  # 'missed_punch' 或 'leave'
+    target_date = data.get('target_date') or None
     reason = data.get('reason', '')
-    leave_type = data.get('leave_type')
-    start_time_str = data.get('start_time')
-    end_time_str = data.get('end_time')
+    leave_type = data.get('leave_type') or None
+    
+    # 將前端可能傳入的空字串 "" 轉為 Python None (資料庫 NULL)
+    start_time_str = data.get('start_time') if data.get('start_time') else None
+    end_time_str = data.get('end_time') if data.get('end_time') else None
     
     conn = get_db_connection()
     cur = conn.cursor()
@@ -233,6 +238,141 @@ def submit_request():
             (user_id, request_type, target_date, start_time, end_time, reason, leave_type, status)
             VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending')
         """, (user_id, request_type, target_date, start_time_str, end_time_str, reason, leave_type))
+        
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        conn.rollback()
+        print(f"Submit Request Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+@webclock_bp.route('/admin/requests', methods=['GET'])
+@login_required
+@role_required('admin')
+def get_admin_requests():
+    """管理員取得待審核與歷史申請紀錄列表 (新增此路由修復讀取問題)"""
+    status_filter = request.args.get('status', 'pending')
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        sql = """
+            SELECT r.id, u.username, r.request_type, r.target_date, 
+                   r.start_time, r.end_time, r.reason, r.leave_type, r.status
+            FROM attendance_requests r
+            JOIN users u ON r.user_id = u.id
+            WHERE 1=1
+        """
+        params = []
+        if status_filter and status_filter != 'all':
+            sql += " AND r.status = %s"
+            params.append(status_filter)
+            
+        sql += " ORDER BY r.id DESC"
+        
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
+        
+        requests_list = []
+        for row in rows:
+            req_id, username, req_type, target_date, start_time, end_time, reason, leave_type, status = row
+            
+            # 安全轉換時間字串格式
+            start_str = start_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(start_time, datetime) else (str(start_time) if start_time else '')
+            end_str = end_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(end_time, datetime) else (str(end_time) if end_time else '')
+            
+            requests_list.append({
+                'id': req_id,
+                'username': username,
+                'request_type': req_type,
+                'target_date': str(target_date) if target_date else '',
+                'start_time': start_str,
+                'end_time': end_str,
+                'reason': reason or '',
+                'leave_type': leave_type or '',
+                'status': status
+            })
+            
+        return jsonify({'success': True, 'requests': requests_list})
+    except Exception as e:
+        print(f"Fetch Admin Requests Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+@webclock_bp.route('/admin/requests/<int:req_id>/approve', methods=['POST'])
+@login_required
+@role_required('admin')
+def approve_request(req_id):
+    """同意補打卡或請假申請"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT user_id, request_type, target_date, start_time, end_time, leave_type FROM attendance_requests WHERE id = %s", (req_id,))
+        req = cur.fetchone()
+        
+        if req:
+            user_id, req_type, target_date, start_time, end_time, leave_type = req
+            
+            if req_type == 'missed_punch' and start_time and end_time:
+                # 計算時間差
+                if isinstance(start_time, str):
+                    start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                if isinstance(end_time, str):
+                    end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                    
+                hours = (end_time - start_time).total_seconds() / 3600
+                
+                cur.execute("""
+                    INSERT INTO clock_records (user_id, work_date, clock_in, clock_out, work_hours, status)
+                    VALUES (%s, %s, %s, %s, %s, 'missed_fixed')
+                    ON CONFLICT (user_id, work_date) DO UPDATE 
+                    SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, work_hours = EXCLUDED.work_hours, status = 'missed_fixed'
+                """, (user_id, target_date, start_time, end_time, round(hours, 2)))
+                
+            elif req_type == 'leave':
+                # 處理請假登記
+                hours = 8.0
+                if start_time and end_time:
+                    if isinstance(start_time, str):
+                        start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    if isinstance(end_time, str):
+                        end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                    hours = (end_time - start_time).total_seconds() / 3600
+                    
+                cur.execute("""
+                    INSERT INTO clock_records (user_id, work_date, work_hours, status)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, work_date) DO UPDATE 
+                    SET status = EXCLUDED.status
+                """, (user_id, target_date, 0, f'leave_{leave_type}'))
+                
+            cur.execute("UPDATE attendance_requests SET status = 'approved' WHERE id = %s", (req_id,))
+            conn.commit()
+            return jsonify({"success": True})
+            
+        return jsonify({"success": False, "error": "找不到該申請單"}), 404
+    except Exception as e:
+        conn.rollback()
+        print(f"Approve Request Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+@webclock_bp.route('/admin/requests/<int:req_id>/reject', methods=['POST'])
+@login_required
+@role_required('admin')
+def reject_request(req_id):
+    """駁回補打卡或請假申請"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("UPDATE attendance_requests SET status = 'rejected' WHERE id = %s", (req_id,))
         conn.commit()
         return jsonify({"success": True})
     except Exception as e:
@@ -258,11 +398,9 @@ def manage_salaries():
             user_id = request.form.get('user_id')
             salary_type = request.form.get('salary_type')
             
-            # 由於 disabled 欄位不會被提交，未選中的項目在 request.form 會拿到 None
             raw_hourly = request.form.get('hourly_wage')
             raw_monthly = request.form.get('monthly_wage')
 
-            # 根據 salary_type 決定哪個清空 (None -> DB NULL)，哪個轉為數字
             if salary_type == 'monthly':
                 hourly_wage = None  # 切換為月薪時，清空時薪
                 try:
@@ -277,7 +415,6 @@ def manage_salaries():
                 except (ValueError, TypeError):
                     hourly_wage = 183
 
-            # 更新資料庫
             cur.execute("""
                 UPDATE users 
                 SET salary_type = %s,
@@ -327,70 +464,11 @@ def manage_salaries():
         conn.close()
 
 # ==========================================
-# 📋 管理員功能：審核申請與薪資匯出
+# 📊 管理員功能：薪資報表匯出與出勤查詢
 # ==========================================
 
-@webclock_bp.route('/admin/requests/<int:req_id>/approve', methods=['POST'])
-@role_required('admin')
-def approve_request(req_id):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("SELECT user_id, request_type, target_date, start_time, end_time, leave_type FROM attendance_requests WHERE id = %s", (req_id,))
-        req = cur.fetchone()
-        
-        if req:
-            user_id, req_type, target_date, start_time, end_time, leave_type = req
-            
-            if req_type == 'missed_punch' and start_time and end_time:
-                hours = (end_time - start_time).total_seconds() / 3600
-                cur.execute("""
-                    INSERT INTO clock_records (user_id, work_date, clock_in, clock_out, work_hours, status)
-                    VALUES (%s, %s, %s, %s, %s, 'missed_fixed')
-                    ON CONFLICT (user_id, work_date) DO UPDATE 
-                    SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, work_hours = EXCLUDED.work_hours, status = 'missed_fixed'
-                """, (user_id, target_date, start_time, end_time, round(hours, 2)))
-                
-            elif req_type == 'leave':
-                # 處理請假登記
-                hours = (end_time - start_time).total_seconds() / 3600 if start_time and end_time else 8.0
-                cur.execute("""
-                    INSERT INTO clock_records (user_id, work_date, work_hours, status)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (user_id, work_date) DO UPDATE 
-                    SET status = EXCLUDED.status
-                """, (user_id, target_date, 0, f'leave_{leave_type}'))
-                
-            cur.execute("UPDATE attendance_requests SET status = 'approved' WHERE id = %s", (req_id,))
-            conn.commit()
-            return jsonify({"success": True})
-            
-        return jsonify({"success": False, "error": "找不到該申請單"}), 404
-    except Exception as e:
-        conn.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
-    finally:
-        cur.close()
-        conn.close()
-
-@webclock_bp.route('/admin/requests/<int:req_id>/reject', methods=['POST'])
-@role_required('admin')
-def reject_request(req_id):
-    """駁回補打卡或請假申請"""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("UPDATE attendance_requests SET status = 'rejected' WHERE id = %s", (req_id,))
-        conn.commit()
-        return jsonify({"success": True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
-    finally:
-        cur.close()
-        conn.close()
-
 @webclock_bp.route('/admin/export_salary', methods=['GET'])
+@login_required
 @role_required('admin')
 def export_salary():
     year_month = request.args.get('month', get_taiwan_now().strftime('%Y-%m'))
@@ -424,16 +502,13 @@ def export_salary():
     
     return send_file(output, as_attachment=True, download_name=f'Salary_{year_month}.xlsx')
 
-# ==========================================
-# 📋 管理員功能：查詢全體員工出勤紀錄 (即時 DB 查詢)
-# ==========================================
-
 @webclock_bp.route('/admin/records', methods=['GET'])
+@login_required
 @role_required('admin')
 def admin_records():
     """管理員查詢員工出勤紀錄"""
     month = request.args.get('month', get_taiwan_now().strftime('%Y-%m'))
-    search_query = request.args.get('user_id', '').strip()  # 可接受員工 ID 或姓名關鍵字
+    search_query = request.args.get('user_id', '').strip()
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -446,18 +521,15 @@ def admin_records():
         """
         params = []
 
-        # 月份篩選
         if month:
             sql += " AND TO_CHAR(c.work_date, 'YYYY-MM') = %s"
             params.append(month)
 
-        # 員工名稱 / ID 篩選
         if search_query and search_query != 'all':
             sql += " AND (u.username ILIKE %s OR CAST(u.id AS TEXT) = %s)"
             params.append(f"%{search_query}%")
             params.append(search_query)
 
-        # 按日期倒序排列（最新打卡在最前）
         sql += " ORDER BY c.work_date DESC, c.clock_in DESC"
 
         cur.execute(sql, tuple(params))
