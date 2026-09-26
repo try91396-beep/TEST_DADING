@@ -1,5 +1,5 @@
 import os
-from flask import Flask
+from flask import Flask 
 from database import init_db
 
 # 引用原本的路由
