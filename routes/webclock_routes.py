@@ -5,7 +5,16 @@ from datetime import datetime
 from database import get_db_connection
 from utils import login_required, role_required # 假設引入你定義的權限裝飾器
 
-webclock_bp = Blueprint('/webclock', __name__)
+# 修正：Blueprint 第一個參數是名稱，不要加斜線。路徑前綴已在 app.py 設定
+webclock_bp = Blueprint('webclock', __name__)
+
+# --- 新增：打卡系統首頁 (負責渲染 HTML) ---
+@webclock_bp.route('/', methods=['GET'])
+@login_required
+def index():
+    # 取得當前月份，傳遞給前端供預設顯示用
+    current_month = datetime.now().strftime('%Y-%m')
+    return render_template('webclock.html', current_month=current_month)
 
 # --- 員工功能：打卡 ---
 @webclock_bp.route('/punch', methods=['POST'])
@@ -27,8 +36,10 @@ def punch():
     elif action == 'out':
         # 計算工時
         cur.execute("SELECT clock_in FROM clock_records WHERE user_id = %s AND work_date = %s", (user_id, today))
-        clock_in = cur.fetchone()[0]
-        if clock_in:
+        result = cur.fetchone()
+        
+        if result and result[0]:
+            clock_in = result[0]
             hours = (now - clock_in).total_seconds() / 3600
             cur.execute("""
                 UPDATE clock_records SET clock_out = %s, work_hours = %s 
@@ -51,7 +62,7 @@ def approve_request(req_id):
     cur.execute("SELECT user_id, request_type, target_date, start_time, end_time FROM attendance_requests WHERE id = %s", (req_id,))
     req = cur.fetchone()
     
-    if req[1] == 'missed_punch':
+    if req and req[1] == 'missed_punch':
         # 補打卡：寫入或更新打卡紀錄
         hours = (req[4] - req[3]).total_seconds() / 3600
         cur.execute("""
