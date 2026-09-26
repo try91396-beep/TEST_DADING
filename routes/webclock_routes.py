@@ -1,12 +1,60 @@
 import io
 import pandas as pd
-from flask import Blueprint, render_template, request, jsonify, session, send_file
+import bcrypt # 記得引入 bcrypt 來驗證密碼
+from flask import Blueprint, render_template, request, jsonify, session, send_file, redirect, url_for
 from datetime import datetime
 from database import get_db_connection
-from utils import login_required, role_required # 假設引入你定義的權限裝飾器
+from utils import login_required, role_required
 
-# 修正：Blueprint 第一個參數是名稱，不要加斜線。路徑前綴已在 app.py 設定
 webclock_bp = Blueprint('webclock', __name__)
+
+# ==========================================
+# 🛡️ 打卡系統專屬登入與登出
+# ==========================================
+
+@webclock_bp.route('/login', methods=['GET', 'POST'])
+def login():
+    """處理打卡系統登入"""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+
+        if not username or not password:
+            return render_template('login.html', error="請輸入帳號和密碼")
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT id, password_hash, role FROM users WHERE username = %s", (username,))
+            user = cur.fetchone()
+            
+            if user:
+                user_id, hashed_pw, role = user
+                if bcrypt.checkpw(password.encode('utf-8'), hashed_pw.encode('utf-8')):
+                    session['user_id'] = user_id
+                    session['username'] = username
+                    session['role'] = role
+                    # 登入成功後，導向打卡首頁
+                    return redirect(url_for('webclock.index'))
+                else:
+                    return render_template('login.html', error="密碼錯誤")
+            else:
+                return render_template('login.html', error="找不到此帳號")
+                
+        except Exception as e:
+            print(f"Login Error: {e}")
+            return render_template('login.html', error="系統發生錯誤，請稍後再試")
+        finally:
+            cur.close()
+            conn.close()
+            
+    return render_template('login.html')
+
+@webclock_bp.route('/logout')
+def logout():
+    """處理打卡系統登出"""
+    session.clear() 
+    return redirect(url_for('webclock.login'))
 
 # --- 新增：打卡系統首頁 (負責渲染 HTML) ---
 @webclock_bp.route('/', methods=['GET'])
