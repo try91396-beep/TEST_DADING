@@ -5,7 +5,7 @@ from datetime import datetime
 from database import get_db_connection
 from utils import login_required, role_required # 假設引入你定義的權限裝飾器
 
-webclock_bp = Blueprint('webclock', __name__, url_prefix='/webclock')
+webclock_bp = Blueprint('/webclock', __name__)
 
 # --- 員工功能：打卡 ---
 @webclock_bp.route('/punch', methods=['POST'])
