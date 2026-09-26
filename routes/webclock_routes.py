@@ -117,7 +117,7 @@ def punch():
 @login_required
 def my_records():
     """取得當前使用者的當月打卡與薪資紀錄"""
-    user_id = session['user_id']
+    user_id = session.get('user_id')
     month = request.args.get('month', get_taiwan_now().strftime('%Y-%m'))
     
     conn = get_db_connection()
@@ -127,9 +127,10 @@ def my_records():
         cur.execute("SELECT hourly_wage, salary_type, monthly_wage FROM users WHERE id = %s", (user_id,))
         user_row = cur.fetchone()
         
+        # 修正：none 改為大寫 None
         salary_type = user_row[1] if user_row and user_row[1] else 'hourly'
-        hourly_wage = float(user_row[0]) if user_row and user_row[0] is not none else 183.0
-        monthly_wage = float(user_row[2]) if user_row and user_row[2] is not none else 27470.0
+        hourly_wage = float(user_row[0]) if user_row and user_row[0] is not None else 183.0
+        monthly_wage = float(user_row[2]) if user_row and user_row[2] is not None else 27470.0
         
         # 2. 取得當月打卡與假勤紀錄
         cur.execute("""
@@ -152,6 +153,7 @@ def my_records():
                 "status": r[4] or 'normal'
             })
             
+        # 依據薪資類型試算當月薪資
         if salary_type == 'hourly':
             estimated_salary = int(total_hours * hourly_wage)
         else:
