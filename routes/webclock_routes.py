@@ -1,7 +1,7 @@
 import io
 import pandas as pd
-import bcrypt # 記得引入 bcrypt 來驗證密碼
-from flask import Blueprint, render_template, request, jsonify, session, send_file, redirect, url_for
+import bcrypt
+from flask import Blueprint, render_template, request, jsonify, session, send_file, redirect, url_for, flash
 from datetime import datetime
 from database import get_db_connection
 from utils import login_required, role_required
@@ -34,7 +34,6 @@ def login():
                     session['user_id'] = user_id
                     session['username'] = username
                     session['role'] = role
-                    # 登入成功後，導向打卡首頁
                     return redirect(url_for('webclock.index'))
                 else:
                     return render_template('login.html', error="密碼錯誤")
@@ -56,15 +55,16 @@ def logout():
     session.clear() 
     return redirect(url_for('webclock.login'))
 
-# --- 新增：打卡系統首頁 (負責渲染 HTML) ---
+# ==========================================
+# ⏱️ 員工功能：打卡首頁與打卡動作
+# ==========================================
+
 @webclock_bp.route('/', methods=['GET'])
 @login_required
 def index():
-    # 取得當前月份，傳遞給前端供預設顯示用
     current_month = datetime.now().strftime('%Y-%m')
     return render_template('webclock.html', current_month=current_month)
 
-# --- 員工功能：打卡 ---
 @webclock_bp.route('/punch', methods=['POST'])
 @login_required
 def punch():
@@ -82,7 +82,6 @@ def punch():
             VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING id
         """, (user_id, today, now))
     elif action == 'out':
-        # 計算工時
         cur.execute("SELECT clock_in FROM clock_records WHERE user_id = %s AND work_date = %s", (user_id, today))
         result = cur.fetchone()
         
@@ -99,19 +98,51 @@ def punch():
     conn.close()
     return jsonify({"success": True})
 
-# --- 管理員功能：審核申請 ---
+# ==========================================
+# 💰 員工薪資與時薪設定 (限 Admin)
+# ==========================================
+
+@webclock_bp.route('/salaries', methods=['GET', 'POST'])
+@role_required('admin')  # 限制只有 admin 權限可進入
+def manage_salaries():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    if request.method == 'POST':
+        try:
+            user_id = request.form.get('user_id')
+            hourly_wage = request.form.get('hourly_wage', 0)
+            
+            cur.execute("UPDATE users SET hourly_wage = %s WHERE id = %s", (hourly_wage, user_id))
+            conn.commit()
+            flash('✅ 薪資設定已成功更新！', 'success')
+        except Exception as e:
+            flash(f'❌ 更新失敗：{str(e)}', 'danger')
+        return redirect(url_for('webclock.manage_salaries'))
+
+    # 取得所有員工名單 (包含管理員自己，因為管理員也需要打卡與設定)
+    cur.execute("SELECT id, username, role, hourly_wage FROM users ORDER BY role ASC, id ASC")
+    users = [{'id': row[0], 'username': row[1], 'role': row[2], 'hourly_wage': row[3]} for row in cur.fetchall()]
+    
+    cur.close()
+    conn.close()
+    
+    return render_template('salaries.html', users=users)
+
+# ==========================================
+# 📋 管理員功能：審核申請與薪資匯出
+# ==========================================
+
 @webclock_bp.route('/admin/requests/<int:req_id>/approve', methods=['POST'])
 @role_required('admin')
 def approve_request(req_id):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # 取得申請資料
     cur.execute("SELECT user_id, request_type, target_date, start_time, end_time FROM attendance_requests WHERE id = %s", (req_id,))
     req = cur.fetchone()
     
     if req and req[1] == 'missed_punch':
-        # 補打卡：寫入或更新打卡紀錄
         hours = (req[4] - req[3]).total_seconds() / 3600
         cur.execute("""
             INSERT INTO clock_records (user_id, work_date, clock_in, clock_out, work_hours, status)
@@ -125,14 +156,12 @@ def approve_request(req_id):
     conn.close()
     return jsonify({"success": True})
 
-# --- 薪資計算與 Excel 匯出 ---
 @webclock_bp.route('/admin/export_salary', methods=['GET'])
 @role_required('admin')
 def export_salary():
     year_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
     
     conn = get_db_connection()
-    # 抓取該月份所有員工的打卡時數與薪資設定
     query = """
         SELECT u.username, u.salary_type, u.hourly_wage, u.monthly_wage, 
                COALESCE(SUM(c.work_hours), 0) as total_hours
@@ -143,19 +172,17 @@ def export_salary():
     df = pd.read_sql_query(query, conn, params=(year_month,))
     conn.close()
     
-    # 自動計算薪資邏輯 (可依勞基法擴充)
     def calculate_pay(row):
-        if row['salary_type'] == 'hourly':
-            return row['total_hours'] * row['hourly_wage']
+        if row.get('salary_type') == 'hourly':
+            return row['total_hours'] * row.get('hourly_wage', 0)
         else:
-            # 月薪制：假設每月應上班 160 小時，請假扣薪算法
+            monthly_wage = row.get('monthly_wage') or 0
             leave_hours = max(0, 160 - row['total_hours'])
-            hourly_rate = row['monthly_wage'] / 240 # 勞基法日薪/8
-            return row['monthly_wage'] - (leave_hours * hourly_rate)
+            hourly_rate = monthly_wage / 240 
+            return monthly_wage - (leave_hours * hourly_rate)
             
     df['calculated_salary'] = df.apply(calculate_pay, axis=1)
     
-    # 匯出為 Excel
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Salary Report')
