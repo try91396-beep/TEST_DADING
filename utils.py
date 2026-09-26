@@ -20,11 +20,18 @@ def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if 'user_id' not in session:
+            # 針對 API 請求回傳 JSON 錯誤
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+            
+            # 根據當前 Blueprint 決定導向哪個登入頁面
             bp = request.blueprint or ''
-            target = 'try_debug.login' if bp in ['try', 'try_debug'] else f'{bp}.login'
-            return redirect(url_for(target) if bp else url_for('admin.login'))
+            if bp == 'webclock':
+                return redirect(url_for('webclock.login'))
+            else:
+                # 預設其他所有藍圖 (包含 admin, kitchen, try 等) 統一導向主管理登入
+                return redirect(url_for('admin.login'))
+                
         return f(*args, **kwargs)
     return decorated_function
 
@@ -34,7 +41,11 @@ def role_required(*allowed_roles):
         def decorated_function(*args, **kwargs):
             if 'user_id' not in session:
                 bp = request.blueprint or ''
-                return redirect(url_for(f'{bp}.login' if bp else 'admin.login'))
+                if bp == 'webclock':
+                    return redirect(url_for('webclock.login'))
+                else:
+                    return redirect(url_for('admin.login'))
+                    
             if session.get('role') not in allowed_roles:
                 return "<h3>❌ 權限不足</h3>", 403
             return f(*args, **kwargs)
@@ -336,10 +347,19 @@ def start_background_tasks(app):
 def inject_user_info():
     current_username = session.get('username')
     current_bp = request.blueprint
-    try:
-        logout_url = url_for(f'{current_bp}.logout') if current_username and current_bp else '#'
-    except:
-        logout_url = '#'
+    
+    logout_url = '#'
+    if current_username:
+        # 如果是在 webclock，登出按鈕對應 webclock.logout
+        if current_bp == 'webclock':
+            logout_url = url_for('webclock.logout')
+        else:
+            # 否則一律對應 admin.logout (即使在 kitchen 或 admin)
+            try:
+                logout_url = url_for('admin.logout')
+            except BuildError:
+                pass
+
     return {
         'current_username': current_username,
         'current_role': session.get('role', '未知角色'),
