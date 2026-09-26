@@ -318,3 +318,40 @@ def export_salary():
     output.seek(0)
     
     return send_file(output, as_attachment=True, download_name=f'Salary_{year_month}.xlsx')
+
+# ==========================================
+# 📋 管理員功能：查詢員工薪資
+# ==========================================
+
+@webclock.route('/admin/records', methods=['GET'])
+def admin_records():
+    # 權限檢查
+    if session.get('role') != 'admin':
+        return jsonify({'success': False, 'error': '權限不足'}), 403
+
+    month = request.args.get('month')        # e.g., '2026-09'
+    user_id = request.args.get('user_id')    # e.g., 'bobo123'
+
+    # TODO: 替換為你的資料庫查詢邏輯 (以 SQLAlchemy 為例)
+    # query = AttendanceRecord.query
+    # if month:
+    #     query = query.filter(AttendanceRecord.work_date.like(f"{month}%"))
+    # if user_id:
+    #     query = query.filter(AttendanceRecord.username.like(f"%{user_id}%"))
+    # records = query.all()
+
+    # 假資料範例輸出
+    records_data = [
+        {
+            "username": user_id or "bobo123",
+            "work_date": f"{month}-01" if month else "2026-09-01",
+            "clock_in": "09:00:00",
+            "clock_out": "18:00:00",
+            "work_hours": 8.0
+        }
+    ]
+
+    return jsonify({
+        'success': True,
+        'records': records_data
+    })
