@@ -326,32 +326,39 @@ def export_salary():
 @webclock_bp.route('/admin/records', methods=['GET'])
 def admin_records():
     # 權限檢查
-    if session.get('role') != 'admin':
-        return jsonify({'success': False, 'error': '權限不足'}), 403
+    if not session.get('is_admin'):
+        return jsonify({'success': False, 'message': '無管理員權限'}), 403
 
-    month = request.args.get('month')        # e.g., '2026-09'
-    user_id = request.args.get('user_id')    # e.g., 'bobo123'
+    month = request.args.get('month')  # 例如: "2026-09"
+    user_id = request.args.get('user_id')  # 使用者 ID 或 "all"
 
-    # TODO: 替換為你的資料庫查詢邏輯 (以 SQLAlchemy 為例)
-    # query = AttendanceRecord.query
-    # if month:
-    #     query = query.filter(AttendanceRecord.work_date.like(f"{month}%"))
-    # if user_id:
-    #     query = query.filter(AttendanceRecord.username.like(f"%{user_id}%"))
-    # records = query.all()
+    # 1. 建立基本查詢
+    query = Attendance.query
 
-    # 假資料範例輸出
-    records_data = [
-        {
-            "username": user_id or "bobo123",
-            "work_date": f"{month}-01" if month else "2026-09-01",
-            "clock_in": "09:00:00",
-            "clock_out": "18:00:00",
-            "work_hours": 8.0
-        }
-    ]
+    # 2. 依月份篩選 (假設 work_date 為字串或 Date 型別)
+    if month:
+        query = query.filter(Attendance.work_date.like(f"{month}%"))
 
-    return jsonify({
-        'success': True,
-        'records': records_data
-    })
+    # 3. 依使用者 ID 篩選
+    if user_id and user_id != 'all':
+        query = query.filter(Attendance.user_id == user_id)
+
+    # 4. 排序：依日期與簽到時間倒序排列（最新的在最上面）
+    records = query.order_by(Attendance.work_date.desc(), Attendance.clock_in.desc()).all()
+
+    # 5. 組裝真實資料回傳格式
+    data = []
+    for r in records:
+        user = User.query.get(r.user_id)
+        username = user.username if user else "未知員工"
+
+        data.append({
+            'username': username,
+            'work_date': str(r.work_date),
+            'clock_in': str(r.clock_in) if r.clock_in else '--:--:--',
+            'clock_out': str(r.clock_out) if r.clock_out else '--:--:--',
+            'status': r.status or '正常',
+            'work_hours': round(r.work_hours, 1) if r.work_hours is not None else 0.0
+        })
+
+    return jsonify({'success': True, 'records': data})
