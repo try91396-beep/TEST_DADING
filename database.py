@@ -124,6 +124,38 @@ def init_db():
                 password_hash TEXT NOT NULL,      -- 密碼的雜湊值 (絕對不存明文)
                 role VARCHAR(20) DEFAULT 'admin', -- 角色權限 (例如: admin, staff)
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 建立時間
+                salary_type VARCHAR(20) DEFAULT 'hourly',     -- 薪資類型 ('hourly' 或 'monthly')
+                hourly_wage INTEGER DEFAULT 183,              -- 時薪預設值
+                monthly_wage INTEGER DEFAULT 27470            -- 月薪預設值
+            );
+        ''')
+
+        # 建立打卡紀錄表 (支援歷史查詢)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS clock_records (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                work_date DATE NOT NULL,          -- 工作日期 (用於快速查詢特定月份/年份)
+                clock_in TIMESTAMP,               -- 上班時間
+                clock_out TIMESTAMP,              -- 下班時間
+                work_hours NUMERIC(5, 2) DEFAULT 0, -- 結算工時
+                status VARCHAR(20) DEFAULT 'normal' -- 'normal'(正常), 'leave'(請假), 'missed_fixed'(補登)
+            );
+            CREATE INDEX IF NOT EXISTS idx_work_date ON clock_records(work_date);
+        ''')
+        
+        # 建立請假與補打卡申請表
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS attendance_requests (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                request_type VARCHAR(20) NOT NULL, -- 'leave' (請假) 或 'missed_punch' (補打卡)
+                target_date DATE NOT NULL,         -- 申請日期
+                start_time TIMESTAMP,              -- 請假/補打卡 開始時間
+                end_time TIMESTAMP,                -- 請假/補打卡 結束時間
+                reason TEXT,                       -- 申請理由
+                status VARCHAR(20) DEFAULT 'pending', -- 'pending'(待審), 'approved'(通過), 'rejected'(退回)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
 
@@ -161,6 +193,9 @@ def init_db():
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS customer_address TEXT;",
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS scheduled_for TEXT;",
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_fee INTEGER DEFAULT 0;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS salary_type VARCHAR(20) DEFAULT 'hourly';", # 'hourly' (時薪) 或 'monthly' (月薪)
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_wage INTEGER DEFAULT 183;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_wage INTEGER DEFAULT 27470;",
             
             # --- Products 表格補全 (防止舊資料庫缺少多語系欄位) ---
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 100;",
