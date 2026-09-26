@@ -200,27 +200,47 @@ def submit_request():
 # ==========================================
 
 @webclock_bp.route('/salaries', methods=['GET', 'POST'])
-@role_required('admin')
 def manage_salaries():
-    conn = get_db_connection()
-    cur = conn.cursor()
-    try:
-        if request.method == 'POST':
-            user_id = request.form.get('user_id')
-            hourly_wage = request.form.get('hourly_wage', 0)
-            
-            cur.execute("UPDATE users SET hourly_wage = %s WHERE id = %s", (hourly_wage, user_id))
-            conn.commit()
-            flash('✅ 薪資設定已成功更新！', 'success')
-            return redirect(url_for('webclock.manage_salaries'))
+    if request.method == 'POST':
+        user_id = request.form.get('user_id')
+        salary_type = request.form.get('salary_type')
+        
+        # 由於 disabled 欄位不會被提交，未選中的項目在 request.form 會拿到 None
+        raw_hourly = request.form.get('hourly_wage')
+        raw_monthly = request.form.get('monthly_wage')
 
-        cur.execute("SELECT id, username, role, hourly_wage FROM users ORDER BY role ASC, id ASC")
-        users = [{'id': row[0], 'username': row[1], 'role': row[2], 'hourly_wage': row[3]} for row in cur.fetchall()]
-        return render_template('salaries.html', users=users)
-    finally:
+        # 根據 salary_type 決定哪個清空 (None -> DB NULL)，哪個轉為數字
+        if salary_type == 'monthly':
+            hourly_wage = None  # 切換為月薪時，清空時薪
+            try:
+                monthly_wage = float(raw_monthly) if raw_monthly else 27470
+            except (ValueError, TypeError):
+                monthly_wage = 27470
+        else:
+            salary_type = 'hourly'
+            monthly_wage = None  # 切換為時薪時，清空月薪
+            try:
+                hourly_wage = float(raw_hourly) if raw_hourly else 183
+            except (ValueError, TypeError):
+                hourly_wage = 183
+
+        # 更新資料庫
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE users 
+            SET salary_type = %s,
+                hourly_wage = %s,
+                monthly_wage = %s
+            WHERE id = %s
+        """, (salary_type, hourly_wage, monthly_wage, user_id))
+        
+        conn.commit()
         cur.close()
         conn.close()
 
+        flash("薪資設定已成功更新！", "success")
+        return redirect(url_for('webclock.manage_salaries'))
 # ==========================================
 # 📋 管理員功能：審核申請與薪資匯出
 # ==========================================
