@@ -98,15 +98,27 @@ function toggleWageInputs(selectElement) {
     const monthlyInput = row.querySelector('.monthly-input');
 
     if (selectElement.value === 'monthly') {
+        // 隱藏並停用時薪
         hourlyGroup.style.display = 'none';
         hourlyInput.disabled = true;
-        
+
+        // 顯示並啟用月薪
         monthlyGroup.style.display = 'flex';
         monthlyInput.disabled = false;
+        
+        // 切換至月薪時若未填寫，自動填入預設值
+        if (!monthlyInput.value) {
+            monthlyInput.value = 27470;
+        }
     } else {
+        // 顯示並啟用時薪
         hourlyGroup.style.display = 'flex';
         hourlyInput.disabled = false;
+        if (!hourlyInput.value) {
+            hourlyInput.value = 183;
+        }
 
+        // 隱藏並停用月薪
         monthlyGroup.style.display = 'none';
         monthlyInput.disabled = true;
     }
