@@ -123,10 +123,13 @@ def my_records():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 1. 取得員工時薪與薪資類型
+        # 1. 取得員工薪資設定
         cur.execute("SELECT hourly_wage, salary_type, monthly_wage FROM users WHERE id = %s", (user_id,))
         user_row = cur.fetchone()
-        hourly_wage = float(user_row[0]) if user_row and user_row[0] else 183.0
+        
+        salary_type = user_row[1] if user_row and user_row[1] else 'hourly'
+        hourly_wage = float(user_row[0]) if user_row and user_row[0] is not none else 183.0
+        monthly_wage = float(user_row[2]) if user_row and user_row[2] is not none else 27470.0
         
         # 2. 取得當月打卡與假勤紀錄
         cur.execute("""
@@ -149,7 +152,10 @@ def my_records():
                 "status": r[4] or 'normal'
             })
             
-        estimated_salary = int(total_hours * hourly_wage)
+        if salary_type == 'hourly':
+            estimated_salary = int(total_hours * hourly_wage)
+        else:
+            estimated_salary = int(monthly_wage)
         
         return jsonify({
             "success": True,
@@ -200,47 +206,85 @@ def submit_request():
 # ==========================================
 
 @webclock_bp.route('/salaries', methods=['GET', 'POST'])
+@login_required
+@role_required('admin')
 def manage_salaries():
-    if request.method == 'POST':
-        user_id = request.form.get('user_id')
-        salary_type = request.form.get('salary_type')
-        
-        # 由於 disabled 欄位不會被提交，未選中的項目在 request.form 會拿到 None
-        raw_hourly = request.form.get('hourly_wage')
-        raw_monthly = request.form.get('monthly_wage')
+    """管理員設定員工薪資與權限"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        if request.method == 'POST':
+            user_id = request.form.get('user_id')
+            salary_type = request.form.get('salary_type')
+            
+            # 由於 disabled 欄位不會被提交，未選中的項目在 request.form 會拿到 None
+            raw_hourly = request.form.get('hourly_wage')
+            raw_monthly = request.form.get('monthly_wage')
 
-        # 根據 salary_type 決定哪個清空 (None -> DB NULL)，哪個轉為數字
-        if salary_type == 'monthly':
-            hourly_wage = None  # 切換為月薪時，清空時薪
-            try:
-                monthly_wage = float(raw_monthly) if raw_monthly else 27470
-            except (ValueError, TypeError):
-                monthly_wage = 27470
-        else:
-            salary_type = 'hourly'
-            monthly_wage = None  # 切換為時薪時，清空月薪
-            try:
-                hourly_wage = float(raw_hourly) if raw_hourly else 183
-            except (ValueError, TypeError):
-                hourly_wage = 183
+            # 根據 salary_type 決定哪個清空 (None -> DB NULL)，哪個轉為數字
+            if salary_type == 'monthly':
+                hourly_wage = None  # 切換為月薪時，清空時薪
+                try:
+                    monthly_wage = float(raw_monthly) if raw_monthly else 27470
+                except (ValueError, TypeError):
+                    monthly_wage = 27470
+            else:
+                salary_type = 'hourly'
+                monthly_wage = None  # 切換為時薪時，清空月薪
+                try:
+                    hourly_wage = float(raw_hourly) if raw_hourly else 183
+                except (ValueError, TypeError):
+                    hourly_wage = 183
 
-        # 更新資料庫
-        conn = get_db_connection()
-        cur = conn.cursor()
+            # 更新資料庫
+            cur.execute("""
+                UPDATE users 
+                SET salary_type = %s,
+                    hourly_wage = %s,
+                    monthly_wage = %s
+                WHERE id = %s
+            """, (salary_type, hourly_wage, monthly_wage, user_id))
+            
+            conn.commit()
+            flash("薪資設定已成功更新！", "success")
+            return redirect(url_for('webclock.manage_salaries'))
+
+        # GET 請求：查詢所有員工薪資資料並渲染頁面
         cur.execute("""
-            UPDATE users 
-            SET salary_type = %s,
-                hourly_wage = %s,
-                monthly_wage = %s
-            WHERE id = %s
-        """, (salary_type, hourly_wage, monthly_wage, user_id))
+            SELECT id, username, role, salary_type, hourly_wage, monthly_wage 
+            FROM users 
+            ORDER BY id ASC
+        """)
+        rows = cur.fetchall()
         
-        conn.commit()
+        users = []
+        for r in rows:
+            if isinstance(r, dict):
+                users.append(r)
+            else:
+                users.append({
+                    'id': r[0],
+                    'username': r[1],
+                    'role': r[2],
+                    'salary_type': r[3] or 'hourly',
+                    'hourly_wage': r[4],
+                    'monthly_wage': r[5]
+                })
+
+        return render_template('salaries.html', users=users)
+
+    except Exception as e:
+        if request.method == 'POST':
+            conn.rollback()
+            flash(f"儲存失敗：{e}", "danger")
+            return redirect(url_for('webclock.manage_salaries'))
+        else:
+            flash(f"資料載入失敗：{e}", "danger")
+            return render_template('salaries.html', users=[])
+    finally:
         cur.close()
         conn.close()
 
-        flash("薪資設定已成功更新！", "success")
-        return redirect(url_for('webclock.manage_salaries'))
 # ==========================================
 # 📋 管理員功能：審核申請與薪資匯出
 # ==========================================
