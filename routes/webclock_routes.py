@@ -320,45 +320,65 @@ def export_salary():
     return send_file(output, as_attachment=True, download_name=f'Salary_{year_month}.xlsx')
 
 # ==========================================
-# 📋 管理員功能：查詢員工薪資
+# 📋 管理員功能：查詢全體員工出勤紀錄 (即時 DB 查詢)
 # ==========================================
 
 @webclock_bp.route('/admin/records', methods=['GET'])
+@role_required('admin')
 def admin_records():
-    # 權限檢查
-    if not session.get('is_admin'):
-        return jsonify({'success': False, 'message': '無管理員權限'}), 403
+    """管理員查詢員工出勤紀錄"""
+    month = request.args.get('month', get_taiwan_now().strftime('%Y-%m'))
+    search_query = request.args.get('user_id', '').strip()  # 可接受員工 ID 或姓名關鍵字
 
-    month = request.args.get('month')  # 例如: "2026-09"
-    user_id = request.args.get('user_id')  # 使用者 ID 或 "all"
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        sql = """
+            SELECT u.username, c.work_date, c.clock_in, c.clock_out, c.work_hours, c.status
+            FROM clock_records c
+            JOIN users u ON c.user_id = u.id
+            WHERE 1=1
+        """
+        params = []
 
-    # 1. 建立基本查詢
-    query = Attendance.query
+        # 月份篩選
+        if month:
+            sql += " AND TO_CHAR(c.work_date, 'YYYY-MM') = %s"
+            params.append(month)
 
-    # 2. 依月份篩選 (假設 work_date 為字串或 Date 型別)
-    if month:
-        query = query.filter(Attendance.work_date.like(f"{month}%"))
+        # 員工名稱 / ID 篩選
+        if search_query and search_query != 'all':
+            sql += " AND (u.username ILIKE %s OR CAST(u.id AS TEXT) = %s)"
+            params.append(f"%{search_query}%")
+            params.append(search_query)
 
-    # 3. 依使用者 ID 篩選
-    if user_id and user_id != 'all':
-        query = query.filter(Attendance.user_id == user_id)
+        # 按日期倒序排列（最新打卡在最前）
+        sql += " ORDER BY c.work_date DESC, c.clock_in DESC"
 
-    # 4. 排序：依日期與簽到時間倒序排列（最新的在最上面）
-    records = query.order_by(Attendance.work_date.desc(), Attendance.clock_in.desc()).all()
+        cur.execute(sql, tuple(params))
+        rows = cur.fetchall()
 
-    # 5. 組裝真實資料回傳格式
-    data = []
-    for r in records:
-        user = User.query.get(r.user_id)
-        username = user.username if user else "未知員工"
+        records = []
+        for row in rows:
+            username, work_date, clock_in, clock_out, work_hours, status = row
+            
+            clock_in_str = clock_in.strftime('%H:%M:%S') if clock_in else '--:--:--'
+            clock_out_str = clock_out.strftime('%H:%M:%S') if clock_out else '--:--:--'
+            
+            records.append({
+                'username': username,
+                'work_date': str(work_date),
+                'clock_in': clock_in_str,
+                'clock_out': clock_out_str,
+                'status': status or '正常',
+                'work_hours': round(float(work_hours or 0), 1)
+            })
 
-        data.append({
-            'username': username,
-            'work_date': str(r.work_date),
-            'clock_in': str(r.clock_in) if r.clock_in else '--:--:--',
-            'clock_out': str(r.clock_out) if r.clock_out else '--:--:--',
-            'status': r.status or '正常',
-            'work_hours': round(r.work_hours, 1) if r.work_hours is not None else 0.0
-        })
+        return jsonify({'success': True, 'records': records})
 
-    return jsonify({'success': True, 'records': data})
+    except Exception as e:
+        print(f"Admin Records Error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
