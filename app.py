@@ -41,6 +41,9 @@ def create_app():
     # 這讓我們可以透過網址 /try 來查看資料庫欄位
     app.register_blueprint(try_bp, url_prefix='/try')
 
+     # 打卡 (路徑 /webclock)
+    app.register_blueprint(webclock_bp, url_prefix='/webclock')
+
     # ==========================================
     # 💡 新增註冊：上下文處理器 (Context Processor)
     # 這樣一來，所有的 HTML 網頁就都能直接讀取到 current_username 和 logout_url 了！
