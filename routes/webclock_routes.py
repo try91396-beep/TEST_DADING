@@ -2,9 +2,16 @@ import io
 import pandas as pd
 import bcrypt
 from flask import Blueprint, render_template, request, jsonify, session, send_file, redirect, url_for, flash
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from database import get_db_connection
 from utils import login_required, role_required
+
+# 定義台灣時區 (UTC+8)
+TAIWAN_TZ = timezone(timedelta(hours=8))
+
+def get_taiwan_now():
+    """取得台灣當前時間 (無時區標籤，但時間數值已調整為 UTC+8)"""
+    return datetime.now(TAIWAN_TZ).replace(tzinfo=None)
 
 webclock_bp = Blueprint('webclock', __name__)
 
@@ -62,7 +69,7 @@ def logout():
 @webclock_bp.route('/', methods=['GET'])
 @login_required
 def index():
-    current_month = datetime.now().strftime('%Y-%m')
+    current_month = get_taiwan_now().strftime('%Y-%m')
     return render_template('webclock.html', current_month=current_month)
 
 @webclock_bp.route('/punch', methods=['POST'])
@@ -70,8 +77,8 @@ def index():
 def punch():
     user_id = session['user_id']
     action = request.json.get('action') # 'in' 或 'out'
-    today = datetime.now().date()
-    now = datetime.now()
+    today = get_taiwan_now().date()
+    now = get_taiwan_now()
     
     conn = get_db_connection()
     cur = conn.cursor()
@@ -103,7 +110,7 @@ def punch():
         conn.close()
 
 # ==========================================
-# 📊 員工個人明細 API (補齊以修復 404 錯誤)
+# 📊 員工個人明細 API
 # ==========================================
 
 @webclock_bp.route('/my_records', methods=['GET'])
@@ -111,7 +118,7 @@ def punch():
 def my_records():
     """取得當前使用者的當月打卡與薪資紀錄"""
     user_id = session['user_id']
-    month = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    month = request.args.get('month', get_taiwan_now().strftime('%Y-%m'))
     
     conn = get_db_connection()
     cur = conn.cursor()
@@ -281,7 +288,7 @@ def reject_request(req_id):
 @webclock_bp.route('/admin/export_salary', methods=['GET'])
 @role_required('admin')
 def export_salary():
-    year_month = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    year_month = request.args.get('month', get_taiwan_now().strftime('%Y-%m'))
     
     conn = get_db_connection()
     query = """
