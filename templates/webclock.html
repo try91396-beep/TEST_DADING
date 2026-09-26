@@ -109,7 +109,7 @@
             <span>使用者：<strong>{{ session.get('username', '訪客') }}</strong> 
             ({{ '管理員' if session.get('role') == 'admin' else '一般員工' }})</span>
             
-            <!-- 新增薪資頁面按鈕 -->
+            <!-- 薪資頁面按鈕 -->
             <a href="/webclock/salaries" class="nav-btn btn-salary-nav">💵 薪資總覽</a>
             
             <!-- 登出按鈕 -->
@@ -119,9 +119,7 @@
 
     <div class="dashboard-container">
 
-        <!-- =================================================== -->
-        <!-- 通用卡片 1：打卡與請假區域（全體人員包括管理員均可使用）    -->
-        <!-- =================================================== -->
+        <!-- 卡片 1：打卡與請假區域 -->
         <div class="grid-2">
             <!-- 左側：即時打卡 -->
             <div class="card">
@@ -184,9 +182,7 @@
             </div>
         </div>
 
-        <!-- =================================================== -->
-        <!-- 通用卡片 2：個人打卡與工時紀錄                             -->
-        <!-- =================================================== -->
+        <!-- 卡片 2：個人打卡與工時紀錄 -->
         <div class="card">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
                 <h3 style="border: none; margin: 0; padding: 0;">📊 我的出勤與薪資概況</h3>
@@ -226,12 +222,8 @@
             </div>
         </div>
 
-
         {% if session.get('role') == 'admin' %}
-            <!-- =================================================== -->
-            <!-- 管理員專用區塊：審核與考勤薪資管理                     -->
-            <!-- =================================================== -->
-            
+            <!-- 管理員專用區塊：審核與考勤薪資管理 -->
             <div class="card admin-card">
                 <h3>📋 待辦審核區 (請假 / 補打卡單據)</h3>
                 <div style="overflow-x: auto;">
@@ -490,14 +482,12 @@
 
         // 查詢全體員工出勤紀錄
         function fetchAdminRecords() {
-            // 取得 HTML 中的搜尋欄位元素
             const userIdInput = document.getElementById('searchUserId');
             const monthInput = document.getElementById('searchMonth');
             const resultDiv = document.getElementById('adminRecordsResult');
         
-            // 防護檢查：確保 DOM 元素存在
             if (!userIdInput || !monthInput) {
-                console.error("找不到 id='searchUserId' 或 id='searchMonth' 的元素");
+                console.error("找不到搜尋欄位元素");
                 return;
             }
         
