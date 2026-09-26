@@ -9,7 +9,7 @@
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
-          <div class="alert alert-{{ 'success' if category == 'success' else ('warning' if category == 'warning' else 'danger') }} alert-dismissible fade show" role="alert">
+          <div class="alert alert-{{ 'success' if category == 'success' else 'danger' }} alert-dismissible fade show" role="alert">
               {{ message }}
               <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
           </div>
@@ -32,47 +32,44 @@
             <tbody>
                 {% for user in users %}
                 <tr>
-                    <td>
-                        #{{ user.id }}
-                        <!-- 使用 HTML5 獨立 form 綁定，避免 table/form 標籤交錯被瀏覽器剖析破壞 -->
-                        <form id="salary-form-{{ user.id }}" action="{{ url_for('webclock.manage_salaries') }}" method="POST">
-                            <input type="hidden" name="user_id" value="{{ user.id }}">
-                        </form>
-                    </td>
+                    <td>#{{ user.id }}</td>
                     <td><strong>{{ user.username }}</strong></td>
                     <td>
                         <span class="badge {% if user.role == 'admin' %}bg-danger{% else %}bg-primary{% endif %}">
                             {{ user.role }}
                         </span>
                     </td>
-                    
-                    <!-- 薪資類型選擇 (時薪 / 月薪) -->
-                    <td>
-                        <select class="form-select salary-type-select" name="salary_type" form="salary-form-{{ user.id }}" onchange="toggleWageInputs(this)">
-                            <option value="hourly" {% if user.salary_type == 'hourly' %}selected{% endif %}>時薪制</option>
-                            <option value="monthly" {% if user.salary_type == 'monthly' %}selected{% endif %}>月薪制</option>
-                        </select>
-                    </td>
+                    <form action="{{ url_for('webclock.manage_salaries') }}" method="POST">
+                        <input type="hidden" name="user_id" value="{{ user.id }}">
+                        
+                        <!-- 薪資類型選擇 (時薪 / 月薪) -->
+                        <td>
+                            <select class="form-select salary-type-select" name="salary_type" onchange="toggleWageInputs(this)">
+                                <option value="hourly" {% if user.salary_type == 'hourly' %}selected{% endif %}>時薪制</option>
+                                <option value="monthly" {% if user.salary_type == 'monthly' %}selected{% endif %}>月薪制</option>
+                            </select>
+                        </td>
 
-                    <!-- 時薪與月薪輸入區 -->
-                    <td>
-                        <!-- 時薪輸入框 -->
-                        <div class="input-group hourly-group" style="{% if user.salary_type == 'monthly' %}display: none;{% endif %}">
-                            <span class="input-group-text">時薪 $</span>
-                            <input type="number" class="form-control hourly-input" name="hourly_wage" form="salary-form-{{ user.id }}" value="{{ user.hourly_wage if user.hourly_wage is not none else 183 }}" min="0" {% if user.salary_type == 'monthly' %}disabled{% endif %}>
-                        </div>
+                        <!-- 時薪與月薪輸入區 -->
+                        <td>
+                            <!-- 時薪輸入框 -->
+                            <div class="input-group hourly-group" style="{% if user.salary_type == 'monthly' %}display: none;{% endif %}">
+                                <span class="input-group-text">時薪 $</span>
+                                <input type="number" class="form-control" name="hourly_wage" value="{{ user.hourly_wage if user.hourly_wage is not none else 183 }}" min="0" required>
+                            </div>
 
-                        <!-- 月薪輸入框 -->
-                        <div class="input-group monthly-group" style="{% if user.salary_type != 'monthly' %}display: none;{% endif %}">
-                            <span class="input-group-text">月薪 $</span>
-                            <input type="number" class="form-control monthly-input" name="monthly_wage" form="salary-form-{{ user.id }}" value="{{ user.monthly_wage if user.monthly_wage is not none else 27470 }}" min="0" {% if user.salary_type != 'monthly' %}disabled{% endif %}>
-                        </div>
-                    </td>
+                            <!-- 月薪輸入框 -->
+                            <div class="input-group monthly-group" style="{% if user.salary_type != 'monthly' %}display: none;{% endif %}">
+                                <span class="input-group-text">月薪 $</span>
+                                <input type="number" class="form-control" name="monthly_wage" value="{{ user.monthly_wage if user.monthly_wage is not none else 27470 }}" min="0" required>
+                            </div>
+                        </td>
 
-                    <!-- 儲存按鈕 -->
-                    <td>
-                        <button type="submit" form="salary-form-{{ user.id }}" class="btn btn-success btn-sm w-100">💾 儲存設定</button>
-                    </td>
+                        <!-- 儲存按鈕 -->
+                        <td>
+                            <button type="submit" class="btn btn-success btn-sm w-100">💾 儲存設定</button>
+                        </td>
+                    </form>
                 </tr>
                 {% else %}
                 <tr>
@@ -88,27 +85,19 @@
     </div>
 </div>
 
-<!-- 切換時薪/月薪欄位顯示與啟用狀態的 JavaScript -->
+<!-- 切換時薪/月薪欄位顯示的 JavaScript -->
 <script>
 function toggleWageInputs(selectElement) {
     const row = selectElement.closest('tr');
     const hourlyGroup = row.querySelector('.hourly-group');
     const monthlyGroup = row.querySelector('.monthly-group');
-    const hourlyInput = row.querySelector('.hourly-input');
-    const monthlyInput = row.querySelector('.monthly-input');
 
     if (selectElement.value === 'monthly') {
         hourlyGroup.style.display = 'none';
-        hourlyInput.disabled = true;
-        
         monthlyGroup.style.display = 'flex';
-        monthlyInput.disabled = false;
     } else {
         hourlyGroup.style.display = 'flex';
-        hourlyInput.disabled = false;
-
         monthlyGroup.style.display = 'none';
-        monthlyInput.disabled = true;
     }
 }
 </script>
