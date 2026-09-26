@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* 基礎 Dashboard 樣式 */
+    .dashboard-container { max-width: 1200px; margin: 0 auto; padding: 20px; font-family: sans-serif; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 20px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    
+    /* 打卡時鐘樣式 */
+    .clock-display { font-size: 3rem; font-weight: bold; text-align: center; margin: 20px 0; color: #333; }
+    .punch-btn { width: 100%; padding: 15px; font-size: 1.2rem; border: none; border-radius: 5px; cursor: pointer; color: white; transition: 0.2s; }
+    .btn-in { background-color: #28a745; }
+    .btn-in:hover { background-color: #218838; }
+    .btn-out { background-color: #dc3545; }
+    .btn-out:hover { background-color: #c82333; }
+    
+    /* 表格與表單樣式 */
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+    th { background-color: #f8f9fa; }
+    .form-group { margin-bottom: 15px; }
+    .form-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+    .btn-submit { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+    .btn-action { padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; color: white; }
+    
+    @media (max-width: 768px) {
+        .grid-2 { grid-template-columns: 1fr; }
+    }
+</style>
+
+<div class="dashboard-container">
+    <h2>🕒 線上打卡與薪資系統</h2>
+
+    {% if session.get('role') == 'admin' %}
+        <!-- ========================================= -->
+        <!-- Admin 視圖 (管理員)                       -->
+        <!-- ========================================= -->
+        
+        <div class="card">
+            <h3>📋 待辦審核區 (請假 / 補登)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>員工 ID</th>
+                        <th>申請類型</th>
+                        <th>日期</th>
+                        <th>時間範圍</th>
+                        <th>理由</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="pendingRequestsTable">
+                    <!-- 透過 JS 或 Jinja 渲染待審核項目 -->
+                    <tr>
+                        <td colspan="6" style="text-align:center;">載入中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <h3>🔍 全體紀錄查詢</h3>
+                <div class="form-group">
+                    <label>選擇員工 (留空為全部)</label>
+                    <input type="text" id="searchUserId" placeholder="輸入員工 ID 或帳號">
+                </div>
+                <div class="form-group">
+                    <label>查詢月份</label>
+                    <input type="month" id="searchMonth">
+                </div>
+                <button class="btn-submit" onclick="fetchAdminRecords()">查詢紀錄</button>
+                <div id="adminRecordsResult" style="margin-top:15px; max-height: 300px; overflow-y: auto;"></div>
+            </div>
+
+            <div class="card">
+                <h3>💰 薪資結算與匯出</h3>
+                <p>請選擇要結算的月份，系統將自動計算員工當月總工時與應發薪資。</p>
+                <div class="form-group">
+                    <label>結算月份</label>
+                    <input type="month" id="exportMonth" value="{{ current_month }}">
+                </div>
+                <button class="btn-in punch-btn" onclick="exportSalary()">📥 匯出 Excel 報表</button>
+            </div>
+        </div>
+
+    {% else %}
+        <!-- ========================================= -->
+        <!-- Staff 視圖 (一般員工)                     -->
+        <!-- ========================================= -->
+        
+        <div class="grid-2">
+            <!-- 左側：打卡面板 -->
+            <div class="card" style="text-align: center;">
+                <h3>今日打卡</h3>
+                <div class="clock-display" id="realtimeClock">00:00:00</div>
+                <p id="currentDate"></p>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="punch-btn btn-in" onclick="submitPunch('in')">上班打卡</button>
+                    <button class="punch-btn btn-out" onclick="submitPunch('out')">下班打卡</button>
+                </div>
+                <p id="punchStatusMsg" style="margin-top: 15px; font-weight: bold;"></p>
+            </div>
+
+            <!-- 右側：請假/補登申請 -->
+            <div class="card">
+                <h3>📝 提交申請</h3>
+                <form id="attendanceForm" onsubmit="submitRequest(event)">
+                    <div class="form-group">
+                        <label>申請類型</label>
+                        <select id="reqType" required>
+                            <option value="leave">請假</option>
+                            <option value="missed_punch">補打卡</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>目標日期</label>
+                        <input type="date" id="reqDate" required>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label>開始時間</label>
+                            <input type="time" id="reqStart" required>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label>結束時間</label>
+                            <input type="time" id="reqEnd" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>事由</label>
+                        <textarea id="reqReason" rows="2" required></textarea>
+                    </div>
+                    <button type="submit" class="btn-submit">送出申請</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- 下方：個人儀表板 -->
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>📊 個人儀表板</h3>
+                <input type="month" id="myMonth" onchange="fetchMyRecords()" value="{{ current_month }}">
+            </div>
+            
+            <div class="grid-2" style="margin: 15px 0;">
+                <div style="background: #f1f8ff; padding: 15px; border-radius: 5px;">
+                    <h4>當月累積工時</h4>
+                    <h2 id="myTotalHours">0 小時</h2>
+                </div>
+                <div style="background: #fff8e1; padding: 15px; border-radius: 5px;">
+                    <h4>當月試算薪資</h4>
+                    <h2 id="myTotalSalary">$0</h2>
+                </div>
+            </div>
+
+            <h4>歷史打卡紀錄</h4>
+            <table>
+                <thead>
+                    <tr>
+                        <th>日期</th>
+                        <th>上班時間</th>
+                        <th>下班時間</th>
+                        <th>狀態</th>
+                        <th>結算工時</th>
+                    </tr>
+                </thead>
+                <tbody id="myRecordsTable">
+                    <tr><td colspan="5">請選擇月份查詢...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</div>
+
+<!-- ========================================= -->
+<!-- 前端 JavaScript 邏輯                      -->
+<!-- ========================================= -->
+<script>
+    // --- 共用：時鐘功能 ---
+    function updateClock() {
+        const now = new Date();
+        const clockEl = document.getElementById('realtimeClock');
+        const dateEl = document.getElementById('currentDate');
+        if (clockEl) {
+            clockEl.textContent = now.toLocaleTimeString('zh-TW', { hour12: false });
+            dateEl.textContent = now.toLocaleDateString('zh-TW');
+        }
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // =========================================
+    // Staff 專用功能
+    // =========================================
+    {% if session.get('role') != 'admin' %}
+    
+    // 1. 打卡 API 呼叫
+    function submitPunch(action) {
+        fetch('/webclock/punch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                const msg = document.getElementById('punchStatusMsg');
+                msg.textContent = (action === 'in' ? '✅ 上班打卡成功' : '✅ 下班打卡成功') + ' - ' + new Date().toLocaleTimeString();
+                msg.style.color = 'green';
+                fetchMyRecords(); // 刷新紀錄
+            } else {
+                alert('打卡失敗：' + (data.error || '未知錯誤'));
+            }
+        });
+    }
+
+    // 2. 提交請假/補登申請
+    function submitRequest(e) {
+        e.preventDefault();
+        const payload = {
+            request_type: document.getElementById('reqType').value,
+            target_date: document.getElementById('reqDate').value,
+            start_time: document.getElementById('reqDate').value + ' ' + document.getElementById('reqStart').value,
+            end_time: document.getElementById('reqDate').value + ' ' + document.getElementById('reqEnd').value,
+            reason: document.getElementById('reqReason').value
+        };
+
+        fetch('/webclock/requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                alert('申請已送出，等待管理員審核。');
+                document.getElementById('attendanceForm').reset();
+            }
+        });
+    }
+
+    // 3. 獲取個人當月紀錄
+    function fetchMyRecords() {
+        const month = document.getElementById('myMonth').value;
+        if(!month) return;
+
+        // 假設後端有 /webclock/my_records?month=YYYY-MM 的 API
+        fetch(`/webclock/my_records?month=${month}`)
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('myTotalHours').textContent = `${data.total_hours} 小時`;
+            document.getElementById('myTotalSalary').textContent = `$${data.estimated_salary}`;
+            
+            const tbody = document.getElementById('myRecordsTable');
+            tbody.innerHTML = '';
+            if(data.records.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5">該月無紀錄</td></tr>';
+                return;
+            }
+            
+            data.records.forEach(r => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${r.work_date}</td>
+                        <td>${r.clock_in || '--'}</td>
+                        <td>${r.clock_out || '--'}</td>
+                        <td>${r.status}</td>
+                        <td>${r.work_hours}</td>
+                    </tr>
+                `;
+            });
+        });
+    }
+    
+    // 頁面載入時自動查詢當月紀錄
+    document.addEventListener('DOMContentLoaded', fetchMyRecords);
+
+    {% else %}
+    // =========================================
+    // Admin 專用功能
+    // =========================================
+    
+    // 1. 審核申請
+    function approveReq(reqId, isApproved) {
+        if(!confirm(`確定要${isApproved ? '核准' : '退回'}此申請？`)) return;
+        
+        const endpoint = isApproved ? `/webclock/admin/requests/${reqId}/approve` : `/webclock/admin/requests/${reqId}/reject`;
+        
+        fetch(endpoint, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if(data.success) {
+                alert('操作成功');
+                // 重新載入待辦列表 (需實作 fetchPendingRequests 或重新整理)
+                location.reload(); 
+            }
+        });
+    }
+
+    // 2. 匯出薪資 Excel
+    function exportSalary() {
+        const month = document.getElementById('exportMonth').value;
+        if(!month) {
+            alert('請選擇月份');
+            return;
+        }
+        // 直接讓瀏覽器跳轉該 GET 路由以下載檔案
+        window.location.href = `/webclock/admin/export_salary?month=${month}`;
+    }
+
+    // 3. 查詢全體紀錄 (前端暫時留空，需搭配後端 /webclock/admin/records API)
+    function fetchAdminRecords() {
+        alert("需串接後端 API 取得紀錄並渲染至下方的 #adminRecordsResult 中");
+    }
+    {% endif %}
+</script>
+{% endblock %}
