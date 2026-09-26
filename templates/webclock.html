@@ -18,21 +18,36 @@
         .navbar {
             background-color: #2c3e50;
             color: white;
-            padding: 15px 25px;
+            padding: 12px 25px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         .navbar h1 { margin: 0; font-size: 1.4rem; }
-        .user-info { font-size: 0.95rem; }
-        .logout-btn { color: #e74c3c; margin-left: 15px; text-decoration: none; font-weight: bold; }
-        .logout-btn:hover { text-decoration: underline; }
+        .user-nav { display: flex; align-items: center; gap: 12px; font-size: 0.95rem; }
+        
+        /* 導覽列按鈕 */
+        .nav-btn {
+            display: inline-block;
+            padding: 7px 14px;
+            border-radius: 5px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+        .btn-salary-nav { background-color: #f39c12; color: white; }
+        .btn-salary-nav:hover { background-color: #d68910; transform: translateY(-1px); }
+        .logout-btn { background-color: #e74c3c; color: white; }
+        .logout-btn:hover { background-color: #c0392b; transform: translateY(-1px); }
         
         /* Dashboard 容器 */
         .dashboard-container { max-width: 1200px; margin: 25px auto; padding: 0 20px; }
         .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); padding: 25px; margin-bottom: 25px; }
         .card h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }
+        .admin-card { border-left: 5px solid #3498db; }
+        
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; }
         
         /* 時鐘與打卡按鈕 */
@@ -77,11 +92,11 @@
         .badge-success { background-color: #e8f8f0; color: #27ae60; }
         .badge-warning { background-color: #fef5e7; color: #e67e22; }
         .badge-info { background-color: #eaf2f8; color: #2980b9; }
-        .badge-danger { background-color: #fadbd8; color: #c0392b; }
 
         @media (max-width: 768px) {
             .grid-2 { grid-template-columns: 1fr; }
             .clock-display { font-size: 2.5rem; }
+            .navbar { flex-direction: column; gap: 10px; align-items: flex-start; }
         }
     </style>
 </head>
@@ -90,21 +105,134 @@
     <!-- 頂部導覽列 -->
     <div class="navbar">
         <h1>🕒 Webclock 出勤管理系統</h1>
-        <div class="user-info">
-            使用者：<strong>{{ session.get('username', '訪客') }}</strong> 
-            ({{ '管理員' if session.get('role') == 'admin' else '一般員工' }})
-            <a href="{{ url_for('webclock.logout') }}" class="logout-btn">登出</a>
+        <div class="user-nav">
+            <span>使用者：<strong>{{ session.get('username', '訪客') }}</strong> 
+            ({{ '管理員' if session.get('role') == 'admin' else '一般員工' }})</span>
+            
+            <!-- 新增薪資頁面按鈕 -->
+            <a href="/webclock/salaries" class="nav-btn btn-salary-nav">💵 薪資總覽</a>
+            
+            <!-- 登出按鈕 -->
+            <a href="{{ url_for('webclock.logout') }}" class="nav-btn logout-btn">登出</a>
         </div>
     </div>
 
     <div class="dashboard-container">
-        
-        {% if session.get('role') == 'admin' %}
-            <!-- ========================================= -->
-            <!-- Admin 視圖 (管理員專用)                    -->
-            <!-- ========================================= -->
-            
+
+        <!-- =================================================== -->
+        <!-- 通用卡片 1：打卡與請假區域（全體人員包括管理員均可使用）    -->
+        <!-- =================================================== -->
+        <div class="grid-2">
+            <!-- 左側：即時打卡 -->
             <div class="card">
+                <h3>⏰ 今日打卡</h3>
+                <div class="date-display" id="currentDate">載入日期中...</div>
+                <div class="clock-display" id="realtimeClock">00:00:00</div>
+                
+                <div style="display: flex; gap: 15px; margin-top: 25px;">
+                    <button class="punch-btn btn-in" onclick="submitPunch('in')">上班打卡</button>
+                    <button class="punch-btn btn-out" onclick="submitPunch('out')">下班打卡</button>
+                </div>
+                <p id="punchStatusMsg" style="margin-top: 15px; text-align: center; font-weight: bold; min-height: 24px;"></p>
+            </div>
+
+            <!-- 右側：請假 / 補打卡申請 -->
+            <div class="card">
+                <h3>📝 提交出勤申請</h3>
+                <form id="attendanceForm" onsubmit="submitRequest(event)">
+                    <div class="form-group">
+                        <label for="reqType">申請類型</label>
+                        <select id="reqType" onchange="toggleLeaveTypeField()" required>
+                            <option value="leave">請假申請</option>
+                            <option value="missed_punch">補打卡申請</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group" id="leaveTypeGroup">
+                        <label for="leaveType">假別選擇</label>
+                        <select id="leaveType">
+                            <option value="personal">事假</option>
+                            <option value="sick">病假</option>
+                            <option value="annual">特別休假</option>
+                            <option value="official">公假</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="reqDate">目標日期</label>
+                        <input type="date" id="reqDate" required>
+                    </div>
+                    
+                    <div style="display: flex; gap: 15px;">
+                        <div class="form-group" style="flex: 1;">
+                            <label for="reqStart">開始時間</label>
+                            <input type="time" id="reqStart" required>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label for="reqEnd">結束時間</label>
+                            <input type="time" id="reqEnd" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="reqReason">事由說明</label>
+                        <textarea id="reqReason" rows="2" placeholder="請詳細說明申請原因..." required></textarea>
+                    </div>
+                    
+                    <button type="submit" class="btn-submit" style="width: 100%;">送出審核申請</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- =================================================== -->
+        <!-- 通用卡片 2：個人打卡與工時紀錄                             -->
+        <!-- =================================================== -->
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+                <h3 style="border: none; margin: 0; padding: 0;">📊 我的出勤與薪資概況</h3>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label for="myMonth" style="font-weight: 600; font-size: 0.9rem;">查詢月份:</label>
+                    <input type="month" id="myMonth" onchange="fetchMyRecords()" value="{{ current_month }}" style="padding: 6px; border-radius: 4px; border: 1px solid #ccc;">
+                </div>
+            </div>
+            
+            <div class="grid-2" style="margin-bottom: 25px;">
+                <div class="stat-card stat-blue">
+                    <h4>當月累積工時</h4>
+                    <h2 id="myTotalHours">0.0 小時</h2>
+                </div>
+                <div class="stat-card stat-yellow">
+                    <h4>當月試算薪資 (NTD)</h4>
+                    <h2 id="myTotalSalary">$0</h2>
+                </div>
+            </div>
+
+            <h4 style="color: #2c3e50; margin-top: 20px;">當月打卡與差勤明細</h4>
+            <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>上班時間</th>
+                            <th>下班時間</th>
+                            <th>出勤狀態</th>
+                            <th>當日工時</th>
+                        </tr>
+                    </thead>
+                    <tbody id="myRecordsTable">
+                        <tr><td colspan="5" style="text-align: center; color: #7f8c8d;">載入資料中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+
+        {% if session.get('role') == 'admin' %}
+            <!-- =================================================== -->
+            <!-- 管理員專用區塊：審核與考勤薪資管理                     -->
+            <!-- =================================================== -->
+            
+            <div class="card admin-card">
                 <h3>📋 待辦審核區 (請假 / 補打卡單據)</h3>
                 <div style="overflow-x: auto;">
                     <table>
@@ -153,7 +281,7 @@
             </div>
 
             <div class="grid-2">
-                <div class="card">
+                <div class="card admin-card">
                     <h3>🔍 全體出勤紀錄查詢</h3>
                     <div class="form-group">
                         <label for="searchUserId">員工 ID / 帳號</label>
@@ -167,129 +295,29 @@
                     <div id="adminRecordsResult" style="margin-top:20px; max-height: 300px; overflow-y: auto;"></div>
                 </div>
 
-                <div class="card">
-                    <h3>💰 薪資結算與報表匯出</h3>
+                <div class="card admin-card">
+                    <h3>💰 薪資管理與報表匯出</h3>
                     <p style="color: #7f8c8d; line-height: 1.6; margin-bottom: 20px;">
-                        選擇結算月份後，系統將自動比對全體員工當月總出勤工時與時薪，算定預估薪資並導出 Excel 報表。
+                        前往完整的全公司薪資結算頁面，或選擇月份匯出 Excel 明細表。
                     </p>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <a href="/webclock/salaries" class="nav-btn btn-salary-nav" style="flex: 1; text-align: center; padding: 12px; font-size: 1rem;">
+                            💵 前往完整薪資總覽頁面
+                        </a>
+                    </div>
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
                     <div class="form-group">
-                        <label for="exportMonth">結算月份</label>
+                        <label for="exportMonth">匯出報表月份</label>
                         <input type="month" id="exportMonth" value="{{ current_month }}">
                     </div>
                     <button class="punch-btn btn-in" onclick="exportSalary()">📥 匯出薪資 Excel 報表</button>
                 </div>
             </div>
-
-        {% else %}
-            <!-- ========================================= -->
-            <!-- Staff 視圖 (一般員工專用)                  -->
-            <!-- ========================================= -->
-            
-            <div class="grid-2">
-                <!-- 左側：即時打卡 -->
-                <div class="card">
-                    <h3>⏰ 今日打卡</h3>
-                    <div class="date-display" id="currentDate">載入日期中...</div>
-                    <div class="clock-display" id="realtimeClock">00:00:00</div>
-                    
-                    <div style="display: flex; gap: 15px; margin-top: 25px;">
-                        <button class="punch-btn btn-in" onclick="submitPunch('in')">上班打卡</button>
-                        <button class="punch-btn btn-out" onclick="submitPunch('out')">下班打卡</button>
-                    </div>
-                    <p id="punchStatusMsg" style="margin-top: 15px; text-align: center; font-weight: bold; min-height: 24px;"></p>
-                </div>
-
-                <!-- 右側：請假 / 補打卡申請 -->
-                <div class="card">
-                    <h3>📝 提交出勤申請</h3>
-                    <form id="attendanceForm" onsubmit="submitRequest(event)">
-                        <div class="form-group">
-                            <label for="reqType">申請類型</label>
-                            <select id="reqType" onchange="toggleLeaveTypeField()" required>
-                                <option value="leave">請假申請</option>
-                                <option value="missed_punch">補打卡申請</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group" id="leaveTypeGroup">
-                            <label for="leaveType">假別選擇</label>
-                            <select id="leaveType">
-                                <option value="personal">事假</option>
-                                <option value="sick">病假</option>
-                                <option value="annual">特別休假</option>
-                                <option value="official">公假</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="reqDate">目標日期</label>
-                            <input type="date" id="reqDate" required>
-                        </div>
-                        
-                        <div style="display: flex; gap: 15px;">
-                            <div class="form-group" style="flex: 1;">
-                                <label for="reqStart">開始時間</label>
-                                <input type="time" id="reqStart" required>
-                            </div>
-                            <div class="form-group" style="flex: 1;">
-                                <label for="reqEnd">結束時間</label>
-                                <input type="time" id="reqEnd" required>
-                            </div>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="reqReason">事由說明</label>
-                            <textarea id="reqReason" rows="2" placeholder="請詳細說明申請原因..." required></textarea>
-                        </div>
-                        
-                        <button type="submit" class="btn-submit" style="width: 100%;">送出審核申請</button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- 下方：個人儀表板 -->
-            <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
-                    <h3 style="border: none; margin: 0; padding: 0;">📊 個人出勤與薪資概況</h3>
-                    <div style="display: flex; align-items: center; gap: 10px;">
-                        <label for="myMonth" style="font-weight: 600; font-size: 0.9rem;">查詢月份:</label>
-                        <input type="month" id="myMonth" onchange="fetchMyRecords()" value="{{ current_month }}" style="padding: 6px; border-radius: 4px; border: 1px solid #ccc;">
-                    </div>
-                </div>
-                
-                <div class="grid-2" style="margin-bottom: 25px;">
-                    <div class="stat-card stat-blue">
-                        <h4>當月累積工時</h4>
-                        <h2 id="myTotalHours">0.0 小時</h2>
-                    </div>
-                    <div class="stat-card stat-yellow">
-                        <h4>當月試算薪資 (NTD)</h4>
-                        <h2 id="myTotalSalary">$0</h2>
-                    </div>
-                </div>
-
-                <h4 style="color: #2c3e50; margin-top: 20px;">當月打卡與差勤明細</h4>
-                <div style="overflow-x: auto;">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>日期</th>
-                                <th>上班時間</th>
-                                <th>下班時間</th>
-                                <th>出勤狀態</th>
-                                <th>當日工時</th>
-                            </tr>
-                        </thead>
-                        <tbody id="myRecordsTable">
-                            <tr><td colspan="5" style="text-align: center; color: #7f8c8d;">載入資料中...</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
         {% endif %}
+
     </div>
 
-    <!-- 前端 JS 邏輯區 -->
+    <!-- 前端 JavaScript 邏輯 -->
     <script>
         // --- 即時時鐘 ---
         function updateClock() {
@@ -305,19 +333,14 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        {% if session.get('role') != 'admin' %}
-        // =========================================
-        // 員工端 JavaScript 邏輯
-        // =========================================
-
-        // 切換假別欄位顯示
+        // --- 請假選單切換 ---
         function toggleLeaveTypeField() {
             const reqType = document.getElementById('reqType').value;
             const leaveGroup = document.getElementById('leaveTypeGroup');
             leaveGroup.style.display = (reqType === 'leave') ? 'block' : 'none';
         }
 
-        // 1. 執行上下班打卡
+        // 1. 上下班打卡 (全體人員通用)
         function submitPunch(action) {
             fetch('/webclock/punch', {
                 method: 'POST',
@@ -331,7 +354,7 @@
                     const timeStr = new Date().toLocaleTimeString('zh-TW', { hour12: false });
                     msg.textContent = (action === 'in' ? '✅ 上班打卡成功' : '✅ 下班打卡成功') + ' (' + timeStr + ')';
                     msg.style.color = '#27ae60';
-                    fetchMyRecords(); // 即時刷新年明細
+                    fetchMyRecords(); // 刷新個人明細
                     setTimeout(() => { msg.textContent = ''; }, 4000);
                 } else {
                     alert('打卡失敗：' + (data.error || '未預期錯誤'));
@@ -378,7 +401,7 @@
             .catch(err => console.error('Error submitting request:', err));
         }
 
-        // 3. 獲取個人月度明細
+        // 3. 獲取個人月度打卡與薪資概況
         function fetchMyRecords() {
             const month = document.getElementById('myMonth').value;
             if(!month) return;
@@ -420,21 +443,20 @@
             })
             .catch(err => {
                 console.error(err);
-                document.getElementById('myRecordsTable').innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">讀取資料失敗，請確認後端 API 運作正常。</td></tr>';
+                document.getElementById('myRecordsTable').innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">讀取個人紀錄失敗</td></tr>';
             });
         }
 
+        // 初始化
         document.addEventListener('DOMContentLoaded', () => {
             toggleLeaveTypeField();
             fetchMyRecords();
         });
 
-        {% else %}
-        // =========================================
-        // 管理員端 JavaScript 邏輯
-        // =========================================
+        {% if session.get('role') == 'admin' %}
+        // --- 管理員專用 JS 邏輯 ---
 
-        // 1. 審核單據 (核准 / 駁回)
+        // 審核單據
         function approveReq(reqId, isApproved) {
             const actionText = isApproved ? '核准' : '駁回';
             if(!confirm(`確定要 ${actionText} 此筆申請單？`)) return;
@@ -456,7 +478,7 @@
             .catch(err => console.error(err));
         }
 
-        // 2. 匯出薪資 Excel 報表
+        // 匯出薪資 Excel 報表
         function exportSalary() {
             const month = document.getElementById('exportMonth').value;
             if(!month) {
@@ -466,7 +488,7 @@
             window.location.href = `/webclock/admin/export_salary?month=${month}`;
         }
 
-        // 3. 查詢全體員工出勤紀錄
+        // 查詢全體員工出勤紀錄
         function fetchAdminRecords() {
             const userId = document.getElementById('searchUserId').value;
             const month = document.getElementById('searchMonth').value;
@@ -496,7 +518,7 @@
                 resultDiv.innerHTML = html;
             })
             .catch(() => {
-                resultDiv.innerHTML = '<p style="color: #e74c3c;">查詢失敗或後端 API 尚未開放</p>';
+                resultDiv.innerHTML = '<p style="color: #e74c3c;">查詢失敗或後端 API 未開放</p>';
             });
         }
         {% endif %}
