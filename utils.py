@@ -315,7 +315,7 @@ def run_maintenance_tasks(app):
             # --- C. 防休眠 Ping ---
             if datetime.now() >= next_ping_time:
                 try:
-                    urllib.request.urlopen("https://ding-dong-tipi.onrender.com", timeout=5)
+                    urllib.request.urlopen("https://test-dading.onrender.com", timeout=5)
                     print(f"[{now_str}] ✅ Web Ping 成功")
                 except Exception as web_err: 
                     print(f"[{now_str}] ⚠️ Web Ping 失敗: {web_err}")
