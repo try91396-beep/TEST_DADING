@@ -2,7 +2,7 @@ import io
 import pandas as pd
 import bcrypt
 from flask import Blueprint, render_template, request, jsonify, session, send_file, redirect, url_for, flash
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import get_db_connection
 from utils import login_required, role_required
 
@@ -75,59 +75,144 @@ def punch():
     
     conn = get_db_connection()
     cur = conn.cursor()
-    
-    if action == 'in':
-        cur.execute("""
-            INSERT INTO clock_records (user_id, work_date, clock_in) 
-            VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING id
-        """, (user_id, today, now))
-    elif action == 'out':
-        cur.execute("SELECT clock_in FROM clock_records WHERE user_id = %s AND work_date = %s", (user_id, today))
-        result = cur.fetchone()
-        
-        if result and result[0]:
-            clock_in = result[0]
-            hours = (now - clock_in).total_seconds() / 3600
+    try:
+        if action == 'in':
             cur.execute("""
-                UPDATE clock_records SET clock_out = %s, work_hours = %s 
-                WHERE user_id = %s AND work_date = %s
-            """, (now, round(hours, 2), user_id, today))
+                INSERT INTO clock_records (user_id, work_date, clock_in) 
+                VALUES (%s, %s, %s) ON CONFLICT DO NOTHING RETURNING id
+            """, (user_id, today, now))
+        elif action == 'out':
+            cur.execute("SELECT clock_in FROM clock_records WHERE user_id = %s AND work_date = %s", (user_id, today))
+            result = cur.fetchone()
             
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"success": True})
+            if result and result[0]:
+                clock_in = result[0]
+                hours = (now - clock_in).total_seconds() / 3600
+                cur.execute("""
+                    UPDATE clock_records SET clock_out = %s, work_hours = %s 
+                    WHERE user_id = %s AND work_date = %s
+                """, (now, round(hours, 2), user_id, today))
+                
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+# ==========================================
+# 📊 員工個人明細 API (補齊以修復 404 錯誤)
+# ==========================================
+
+@webclock_bp.route('/my_records', methods=['GET'])
+@login_required
+def my_records():
+    """取得當前使用者的當月打卡與薪資紀錄"""
+    user_id = session['user_id']
+    month = request.args.get('month', datetime.now().strftime('%Y-%m'))
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # 1. 取得員工時薪與薪資類型
+        cur.execute("SELECT hourly_wage, salary_type, monthly_wage FROM users WHERE id = %s", (user_id,))
+        user_row = cur.fetchone()
+        hourly_wage = float(user_row[0]) if user_row and user_row[0] else 183.0
+        
+        # 2. 取得當月打卡與假勤紀錄
+        cur.execute("""
+            SELECT work_date, clock_in, clock_out, work_hours, status 
+            FROM clock_records 
+            WHERE user_id = %s AND TO_CHAR(work_date, 'YYYY-MM') = %s
+            ORDER BY work_date DESC
+        """, (user_id, month))
+        
+        records = []
+        total_hours = 0.0
+        for r in cur.fetchall():
+            hrs = float(r[3] or 0)
+            total_hours += hrs
+            records.append({
+                "work_date": str(r[0]),
+                "clock_in": r[1].strftime('%H:%M:%S') if r[1] else None,
+                "clock_out": r[2].strftime('%H:%M:%S') if r[2] else None,
+                "work_hours": hrs,
+                "status": r[4] or 'normal'
+            })
+            
+        estimated_salary = int(total_hours * hourly_wage)
+        
+        return jsonify({
+            "success": True,
+            "total_hours": round(total_hours, 2),
+            "estimated_salary": estimated_salary,
+            "records": records
+        })
+    except Exception as e:
+        print(f"Fetch Records Error: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+@webclock_bp.route('/requests', methods=['POST'])
+@login_required
+def submit_request():
+    """處理員工提交補打卡或請假申請"""
+    user_id = session['user_id']
+    data = request.json or {}
+    
+    request_type = data.get('request_type') # 'missed_punch' 或 'leave'
+    target_date = data.get('target_date')
+    reason = data.get('reason', '')
+    leave_type = data.get('leave_type')
+    start_time_str = data.get('start_time')
+    end_time_str = data.get('end_time')
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            INSERT INTO attendance_requests 
+            (user_id, request_type, target_date, start_time, end_time, reason, leave_type, status)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending')
+        """, (user_id, request_type, target_date, start_time_str, end_time_str, reason, leave_type))
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 # ==========================================
 # 💰 員工薪資與時薪設定 (限 Admin)
 # ==========================================
 
 @webclock_bp.route('/salaries', methods=['GET', 'POST'])
-@role_required('admin')  # 限制只有 admin 權限可進入
+@role_required('admin')
 def manage_salaries():
     conn = get_db_connection()
     cur = conn.cursor()
-    
-    if request.method == 'POST':
-        try:
+    try:
+        if request.method == 'POST':
             user_id = request.form.get('user_id')
             hourly_wage = request.form.get('hourly_wage', 0)
             
             cur.execute("UPDATE users SET hourly_wage = %s WHERE id = %s", (hourly_wage, user_id))
             conn.commit()
             flash('✅ 薪資設定已成功更新！', 'success')
-        except Exception as e:
-            flash(f'❌ 更新失敗：{str(e)}', 'danger')
-        return redirect(url_for('webclock.manage_salaries'))
+            return redirect(url_for('webclock.manage_salaries'))
 
-    # 取得所有員工名單 (包含管理員自己，因為管理員也需要打卡與設定)
-    cur.execute("SELECT id, username, role, hourly_wage FROM users ORDER BY role ASC, id ASC")
-    users = [{'id': row[0], 'username': row[1], 'role': row[2], 'hourly_wage': row[3]} for row in cur.fetchall()]
-    
-    cur.close()
-    conn.close()
-    
-    return render_template('salaries.html', users=users)
+        cur.execute("SELECT id, username, role, hourly_wage FROM users ORDER BY role ASC, id ASC")
+        users = [{'id': row[0], 'username': row[1], 'role': row[2], 'hourly_wage': row[3]} for row in cur.fetchall()]
+        return render_template('salaries.html', users=users)
+    finally:
+        cur.close()
+        conn.close()
 
 # ==========================================
 # 📋 管理員功能：審核申請與薪資匯出
@@ -138,23 +223,60 @@ def manage_salaries():
 def approve_request(req_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    
-    cur.execute("SELECT user_id, request_type, target_date, start_time, end_time FROM attendance_requests WHERE id = %s", (req_id,))
-    req = cur.fetchone()
-    
-    if req and req[1] == 'missed_punch':
-        hours = (req[4] - req[3]).total_seconds() / 3600
-        cur.execute("""
-            INSERT INTO clock_records (user_id, work_date, clock_in, clock_out, work_hours, status)
-            VALUES (%s, %s, %s, %s, %s, 'missed_fixed')
-            ON CONFLICT (id) DO UPDATE SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, work_hours = EXCLUDED.work_hours
-        """, (req[0], req[2], req[3], req[4], round(hours, 2)))
+    try:
+        cur.execute("SELECT user_id, request_type, target_date, start_time, end_time, leave_type FROM attendance_requests WHERE id = %s", (req_id,))
+        req = cur.fetchone()
         
-    cur.execute("UPDATE attendance_requests SET status = 'approved' WHERE id = %s", (req_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({"success": True})
+        if req:
+            user_id, req_type, target_date, start_time, end_time, leave_type = req
+            
+            if req_type == 'missed_punch' and start_time and end_time:
+                hours = (end_time - start_time).total_seconds() / 3600
+                cur.execute("""
+                    INSERT INTO clock_records (user_id, work_date, clock_in, clock_out, work_hours, status)
+                    VALUES (%s, %s, %s, %s, %s, 'missed_fixed')
+                    ON CONFLICT (user_id, work_date) DO UPDATE 
+                    SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out, work_hours = EXCLUDED.work_hours, status = 'missed_fixed'
+                """, (user_id, target_date, start_time, end_time, round(hours, 2)))
+                
+            elif req_type == 'leave':
+                # 處理請假登記
+                hours = (end_time - start_time).total_seconds() / 3600 if start_time and end_time else 8.0
+                cur.execute("""
+                    INSERT INTO clock_records (user_id, work_date, work_hours, status)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (user_id, work_date) DO UPDATE 
+                    SET status = EXCLUDED.status
+                """, (user_id, target_date, 0, f'leave_{leave_type}'))
+                
+            cur.execute("UPDATE attendance_requests SET status = 'approved' WHERE id = %s", (req_id,))
+            conn.commit()
+            return jsonify({"success": True})
+            
+        return jsonify({"success": False, "error": "找不到該申請單"}), 404
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+@webclock_bp.route('/admin/requests/<int:req_id>/reject', methods=['POST'])
+@role_required('admin')
+def reject_request(req_id):
+    """駁回補打卡或請假申請"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("UPDATE attendance_requests SET status = 'rejected' WHERE id = %s", (req_id,))
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 @webclock_bp.route('/admin/export_salary', methods=['GET'])
 @role_required('admin')
@@ -174,7 +296,7 @@ def export_salary():
     
     def calculate_pay(row):
         if row.get('salary_type') == 'hourly':
-            return row['total_hours'] * row.get('hourly_wage', 0)
+            return row['total_hours'] * (row.get('hourly_wage') or 0)
         else:
             monthly_wage = row.get('monthly_wage') or 0
             leave_hours = max(0, 160 - row['total_hours'])
