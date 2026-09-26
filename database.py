@@ -123,7 +123,7 @@ def init_db():
                 username VARCHAR(50) UNIQUE NOT NULL, -- 帳號名稱 (必須唯一)
                 password_hash TEXT NOT NULL,      -- 密碼的雜湊值 (絕對不存明文)
                 role VARCHAR(20) DEFAULT 'admin', -- 角色權限 (例如: admin, staff)
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP -- 建立時間
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 建立時間
                 salary_type VARCHAR(20) DEFAULT 'hourly',     -- 薪資類型 ('hourly' 或 'monthly')
                 hourly_wage INTEGER DEFAULT 183,              -- 時薪預設值
                 monthly_wage INTEGER DEFAULT 27470            -- 月薪預設值
