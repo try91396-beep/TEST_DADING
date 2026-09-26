@@ -5,16 +5,20 @@ import bcrypt  # 匯入 bcrypt 模組用於密碼雜湊 (需先安裝: pip insta
 
 # --- 資料庫基礎連線 --- 
 def get_db_connection():
-    """建立並回傳資料庫連線物件"""
-    # 從作業系統環境變數中取得 DATABASE_URL（包含資料庫主機、帳密等資訊）
+    """建立並回傳 PostgreSQL 資料庫連線物件"""
+    # 從作業系統環境變數中取得 DATABASE_URL
     db_uri = os.environ.get("DATABASE_URL")
     if not db_uri: 
-        # 如果找不到連線資訊，拋出錯誤訊息
         raise ValueError("錯誤：找不到環境變數 DATABASE_URL")
+    
+    # 修正 Render / Heroku 等雲端平台的舊版 URI 相容性問題 (postgres:// -> postgresql://)
+    if db_uri.startswith("postgres://"):
+        db_uri = db_uri.replace("postgres://", "postgresql://", 1)
+
     # 使用 psycopg2 套件建立與 PostgreSQL 的連線
     return psycopg2.connect(db_uri)
 
-# --- 資料庫初始化 ---
+# --- 資料庫初始化與欄位 Migration ---
 def init_db():
     """
     建立所有必要的資料表與預設設定。
@@ -30,7 +34,7 @@ def init_db():
         # 1. 建立產品表 (products)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS products (
-                id SERIAL PRIMARY KEY,             -- 自動遞增的主鍵 ID
+                id SERIAL PRIMARY KEY,              -- 自動遞增的主鍵 ID
                 name VARCHAR(100) NOT NULL,        -- 產品名稱（必填）
                 price INTEGER NOT NULL,            -- 價格（必填）
                 category VARCHAR(50),              -- 分類名稱
@@ -54,14 +58,14 @@ def init_db():
         # 2. 建立訂單表 (orders)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS orders (
-                id SERIAL PRIMARY KEY,             -- 訂單 ID
+                id SERIAL PRIMARY KEY,              -- 訂單 ID
                 table_number VARCHAR(10),          -- 桌號
                 items TEXT NOT NULL,               -- 訂單項目內容（文字描述）
                 total_price INTEGER NOT NULL,      -- 總金額
                 status VARCHAR(20) DEFAULT 'Pending', -- 訂單狀態（預設為待處理）
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 建立時間
                 daily_seq INTEGER DEFAULT 0,       -- 當日流水號
-                content_json TEXT,                 -- 以 JSON 格式存儲的訂單明細
+                content_json TEXT,                  -- 以 JSON 格式存儲的訂單明細
                 need_receipt BOOLEAN DEFAULT FALSE, -- 是否需要收據/統編
                 lang VARCHAR(10) DEFAULT 'zh',     -- 下單時使用的語系
 
@@ -70,7 +74,7 @@ def init_db():
                 delivery_info TEXT,                -- 綜合外送資訊
                 customer_name TEXT,                -- 客戶姓名
                 customer_phone TEXT,               -- 客戶電話
-                customer_address TEXT,             -- 客戶地址
+                customer_address TEXT,              -- 客戶地址
                 scheduled_for TEXT,                -- 預約送達時間
                 delivery_fee INTEGER DEFAULT 0     -- 外送費
             );
@@ -96,9 +100,9 @@ def init_db():
             ('shop_name', '我的美味餐廳'),                       # 店家名稱
             ('shop_address', '台北市信義區OO路XX號'),            # 店家地址
             ('shop_phone', '02-12345678'),                      # 店家電話
-            ('shop_open_time', '10:30'),                        # 開店時間 (建議使用 24 點制字串)
+            ('shop_open_time', '10:30'),                        # 開店時間
             ('shop_close_time', '20:30'),                       # 閉店時間
-            ('shop_logo_url', 'https://example.com/logo.png'),  # 商標網址 (Logo URL)
+            ('shop_logo_url', 'https://example.com/logo.png'),  # 商標網址
             ('shop_panda_url', 'https://panda.com'),            # 外送平台網址
             ('shop_open_advance_hours', '1'),                   # 提早開店
             ('shop_close_delay_hours', '1'),                    # 延後關店
@@ -107,20 +111,19 @@ def init_db():
         ]
 
         for k, v in default_settings:
-            # 插入設定值，如果 Key 已經存在則跳過 (ON CONFLICT DO NOTHING)
             cur.execute("INSERT INTO settings (key, value) VALUES (%s, %s) ON CONFLICT DO NOTHING", (k, v))
 
         # 5. 建立使用者資料表 (users)
         cur.execute('''
             CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,             -- 使用者 ID
+                id SERIAL PRIMARY KEY,              -- 使用者 ID
                 username VARCHAR(50) UNIQUE NOT NULL, -- 帳號名稱 (必須唯一)
                 password_hash TEXT NOT NULL,       -- 密碼的雜湊值 (絕對不存明文)
                 role VARCHAR(20) DEFAULT 'admin',  -- 角色權限 (例如: admin, staff)
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 建立時間
                 salary_type VARCHAR(20) DEFAULT 'hourly',     -- 薪資類型 ('hourly' 或 'monthly')
-                hourly_wage INTEGER DEFAULT 183,              -- 時薪預設值
-                monthly_wage INTEGER DEFAULT 27470            -- 月薪預設值
+                hourly_wage NUMERIC(10, 2) DEFAULT 183,       -- 時薪預設值 (改用 NUMERIC 支援小數)
+                monthly_wage NUMERIC(10, 2) DEFAULT 27470     -- 月薪預設值 (改用 NUMERIC 支援小數)
             );
         ''')
 
@@ -146,7 +149,7 @@ def init_db():
                 request_type VARCHAR(20) NOT NULL, -- 'leave' (請假) 或 'missed_punch' (補打卡)
                 leave_type VARCHAR(50),             -- 請假類別 (事假/病假/特休等)
                 target_date DATE NOT NULL,          -- 申請日期
-                start_time TIMESTAMP,              -- 請假/補打卡 開始時間
+                start_time TIMESTAMP,               -- 請假/補打卡 開始時間
                 end_time TIMESTAMP,                -- 請假/補打卡 結束時間
                 reason TEXT,                       -- 申請理由
                 status VARCHAR(20) DEFAULT 'pending', -- 'pending'(待審), 'approved'(通過), 'rejected'(退回)
@@ -161,7 +164,7 @@ def init_db():
         if user_count == 0:
             print("👤 尚未建立任何使用者，正在建立預設的 Admin 帳號...")
             default_username = "admin"
-            default_password = "password123" # ⚠️ 請在登入後台後立即更改此密碼！
+            default_password = "password123"  # ⚠️ 請在登入後台後立即更改此密碼！
 
             # 使用 bcrypt 對密碼進行雜湊處理
             salt = bcrypt.gensalt()
@@ -188,8 +191,8 @@ def init_db():
             
             # --- Users 表格補全 ---
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS salary_type VARCHAR(20) DEFAULT 'hourly';",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_wage INTEGER DEFAULT 183;",
-            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_wage INTEGER DEFAULT 27470;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_wage NUMERIC(10, 2) DEFAULT 183;",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_wage NUMERIC(10, 2) DEFAULT 27470;",
 
             # --- Attendance Requests 表格補全 ---
             "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS leave_type VARCHAR(50);",
@@ -224,7 +227,7 @@ def init_db():
         return False
 
     finally:
-        # 關閉資源
+        # 釋放與關閉資源
         if cur:
             cur.close()
         if conn:
