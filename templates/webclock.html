@@ -490,34 +490,64 @@
 
         // 查詢全體員工出勤紀錄
         function fetchAdminRecords() {
-        const month = document.getElementById('adminMonthSelect').value;
-        const userId = document.getElementById('adminUserSelect').value;
-    
-        fetch(`/webclock/admin/records?month=${month}&user_id=${userId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    const tbody = document.getElementById('adminRecordsTableBody');
-                    
-                    if (!data.records || data.records.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">目前無符合條件的打卡紀錄</td></tr>';
+            // 取得 HTML 中的搜尋欄位元素
+            const userIdInput = document.getElementById('searchUserId');
+            const monthInput = document.getElementById('searchMonth');
+            const resultDiv = document.getElementById('adminRecordsResult');
+        
+            // 防護檢查：確保 DOM 元素存在
+            if (!userIdInput || !monthInput) {
+                console.error("找不到 id='searchUserId' 或 id='searchMonth' 的元素");
+                return;
+            }
+        
+            const userId = userIdInput.value;
+            const month = monthInput.value;
+        
+            resultDiv.innerHTML = '<p style="color: #7f8c8d;">查詢中...</p>';
+        
+            fetch(`/webclock/admin/records?month=${month}&user_id=${encodeURIComponent(userId)}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (!data.success || !data.records || data.records.length === 0) {
+                        resultDiv.innerHTML = '<p style="color: #e74c3c; padding: 10px;">查無符合條件的出勤紀錄</p>';
                         return;
                     }
-    
-                    tbody.innerHTML = data.records.map(r => `
-                        <tr>
-                            <td><strong>${r.username}</strong></td>
-                            <td>${r.work_date}</td>
-                            <td>${r.clock_in}</td>
-                            <td>${r.clock_out}</td>
-                            <td><span class="badge bg-success">${r.status || '正常'}</span></td>
-                            <td>${r.work_hours} 小時</td>
-                        </tr>
-                    `).join('');
-                }
-            })
-            .catch(err => console.error("抓取管理員出勤紀錄失敗:", err));
-    }
+        
+                    let html = `
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>員工名稱</th>
+                                    <th>日期</th>
+                                    <th>上班</th>
+                                    <th>下班</th>
+                                    <th>狀態</th>
+                                    <th>工時</th>
+                                </tr>
+                            </thead>
+                            <tbody>`;
+                    
+                    data.records.forEach(r => {
+                        html += `
+                            <tr>
+                                <td><strong>${r.username}</strong></td>
+                                <td>${r.work_date}</td>
+                                <td>${r.clock_in || '--'}</td>
+                                <td>${r.clock_out || '--'}</td>
+                                <td><span class="badge badge-success">${r.status || '正常'}</span></td>
+                                <td>${r.work_hours} 小時</td>
+                            </tr>`;
+                    });
+                    
+                    html += '</tbody></table>';
+                    resultDiv.innerHTML = html;
+                })
+                .catch(err => {
+                    console.error(err);
+                    resultDiv.innerHTML = '<p style="color: #e74c3c;">查詢失敗或 API 回傳異常</p>';
+                });
+        }
         {% endif %}
     </script>
 </body>
