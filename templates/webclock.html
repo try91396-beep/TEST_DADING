@@ -83,6 +83,22 @@
         .btn-reject { background-color: #e74c3c; }
         .btn-reject:hover { background-color: #c0392b; }
         
+        /* 外框警告按鈕 (申請刪除) */
+        .btn-outline-danger {
+            background-color: transparent;
+            color: #e74c3c;
+            border: 1px solid #e74c3c;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s ease;
+        }
+        .btn-outline-danger:hover {
+            background-color: #e74c3c;
+            color: white;
+        }
+        
         /* 統計卡片 */
         .stat-card { padding: 20px; border-radius: 8px; text-align: center; }
         .stat-card h4 { margin: 0 0 10px 0; color: #7f8c8d; font-size: 0.9rem; text-transform: uppercase; }
@@ -217,10 +233,11 @@
                             <th>下班時間</th>
                             <th>出勤狀態</th>
                             <th>當日工時</th>
+                            <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="myRecordsTable">
-                        <tr><td colspan="5" style="text-align: center; color: #7f8c8d;">載入資料中...</td></tr>
+                        <tr><td colspan="6" style="text-align: center; color: #7f8c8d;">載入資料中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -250,6 +267,8 @@
                                     <td>
                                         {% if req.request_type == 'leave' %}
                                             <span class="badge badge-warning">請假</span>
+                                        {% elif req.request_type == 'delete_record' %}
+                                            <span class="badge badge-reject" style="background-color: #fadbd8; color: #78281f;">刪除紀錄</span>
                                         {% else %}
                                             <span class="badge badge-info">補打卡</span>
                                         {% endif %}
@@ -258,7 +277,7 @@
                                         {% if req.leave_type %}[{{ req.leave_type }}] {% endif %}
                                         {{ req.reason or '無說明' }}
                                     </td>
-                                    <td>{{ req.target_date }}</td>
+                                    <td>{{ req.target_date or '--' }}</td>
                                     <td>{{ req.start_time or '--' }} ~ {{ req.end_time or '--' }}</td>
                                     <td>
                                         <button class="btn-action btn-approve" onclick="approveReq({{ req.id }}, true)">核准</button>
@@ -397,6 +416,32 @@
             .catch(err => console.error('提交申請失敗:', err));
         }
 
+        // --- 4.5. 申請刪除打卡紀錄 ---
+        function requestDeleteRecord(recordId) {
+            const reason = prompt("請輸入申請刪除此筆打卡紀錄的原因：");
+            if (!reason) return;
+
+            fetch('/webclock/requests', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    request_type: 'delete_record',
+                    original_record_id: recordId,
+                    reason: reason
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert("已送出刪除申請，請等待管理員審核！");
+                    location.reload();
+                } else {
+                    alert("申請失敗：" + (data.error || "未知錯誤"));
+                }
+            })
+            .catch(err => console.error('申請刪除失敗:', err));
+        }
+
         // --- 5. 取得個人當月打卡與薪資概況 ---
         function fetchMyRecords() {
             const month = document.getElementById('myMonth').value;
@@ -414,7 +459,7 @@
                 tbody.innerHTML = '';
                 
                 if(!data.records || data.records.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#7f8c8d;">該月份尚無打卡紀錄</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:#7f8c8d;">該月份尚無打卡紀錄</td></tr>';
                     return;
                 }
                 
@@ -433,13 +478,18 @@
                             <td>${r.clock_out || '--'}</td>
                             <td>${statusBadge}</td>
                             <td>${r.work_hours} 小時</td>
+                            <td>
+                                <button class="btn-outline-danger" onclick="requestDeleteRecord(${r.id})">
+                                    申請刪除
+                                </button>
+                            </td>
                         </tr>
                     `;
                 });
             })
             .catch(err => {
                 console.error(err);
-                document.getElementById('myRecordsTable').innerHTML = '<tr><td colspan="5" style="text-align:center; color:red;">讀取個人紀錄失敗</td></tr>';
+                document.getElementById('myRecordsTable').innerHTML = '<tr><td colspan="6" style="text-align:center; color:red;">讀取個人紀錄失敗</td></tr>';
             });
         }
 
