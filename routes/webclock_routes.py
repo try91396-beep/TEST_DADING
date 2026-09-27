@@ -69,8 +69,50 @@ def logout():
 @webclock_bp.route('/', methods=['GET'])
 @login_required
 def index():
+    """打卡首頁 (若為管理員則一併查詢並傳送待審核申請單)"""
     current_month = get_taiwan_now().strftime('%Y-%m')
-    return render_template('webclock.html', current_month=current_month)
+    pending_requests = []
+
+    # 關鍵修正：若當前使用者為管理員，查詢所有待審核 (pending) 的請假與補打卡單據
+    if session.get('role') == 'admin':
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                SELECT r.id, u.username, r.request_type, r.target_date, 
+                       r.start_time, r.end_time, r.reason, r.leave_type, r.status, r.user_id
+                FROM attendance_requests r
+                JOIN users u ON r.user_id = u.id
+                WHERE r.status = 'pending'
+                ORDER BY r.id DESC
+            """)
+            rows = cur.fetchall()
+            for row in rows:
+                req_id, username, req_type, target_date, start_time, end_time, reason, leave_type, status, user_id = row
+                
+                # 時間格式化處理
+                start_str = start_time.strftime('%H:%M:%S') if isinstance(start_time, datetime) else (str(start_time)[11:19] if start_time else '')
+                end_str = end_time.strftime('%H:%M:%S') if isinstance(end_time, datetime) else (str(end_time)[11:19] if end_time else '')
+                
+                pending_requests.append({
+                    'id': req_id,
+                    'username': username,
+                    'user_id': username,  # 供前端模板表格顯示員工 ID / 姓名
+                    'request_type': req_type,
+                    'target_date': str(target_date) if target_date else '',
+                    'start_time': start_str,
+                    'end_time': end_str,
+                    'reason': reason or '',
+                    'leave_type': leave_type or '',
+                    'status': status
+                })
+        except Exception as e:
+            print(f"Fetch Index Pending Requests Error: {e}")
+        finally:
+            cur.close()
+            conn.close()
+
+    return render_template('webclock.html', current_month=current_month, pending_requests=pending_requests)
 
 @webclock_bp.route('/punch', methods=['POST'])
 @login_required
@@ -253,7 +295,7 @@ def submit_request():
 @login_required
 @role_required('admin')
 def get_admin_requests():
-    """管理員取得待審核與歷史申請紀錄列表 (新增此路由修復讀取問題)"""
+    """管理員取得待審核與歷史申請紀錄列表 API"""
     status_filter = request.args.get('status', 'pending')
     
     conn = get_db_connection()
