@@ -537,55 +537,72 @@
             const userIdInput = document.getElementById('searchUserId');
             const monthInput = document.getElementById('searchMonth');
             const resultDiv = document.getElementById('adminRecordsResult');
-        
-            if (!userIdInput || !monthInput) return;
-        
-            const userId = userIdInput.value;
-            const month = monthInput.value;
-        
-            resultDiv.innerHTML = '<p style="color: #7f8c8d;">查詢中...</p>';
-        
-            fetch(`/webclock/admin/records?month=${month}&user_id=${encodeURIComponent(userId)}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (!data.success || !data.records || data.records.length === 0) {
-                        resultDiv.innerHTML = '<p style="color: #e74c3c; padding: 10px;">查無符合條件的出勤紀錄</p>';
-                        return;
-                    }
-        
-                    let html = `
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>員工名稱</th>
-                                    <th>日期</th>
-                                    <th>上班</th>
-                                    <th>下班</th>
-                                    <th>狀態</th>
-                                    <th>工時</th>
-                                </tr>
-                            </thead>
-                            <tbody>`;
-                    
-                    data.records.forEach(r => {
-                        html += `
+            
+            const userId = userIdInput ? userIdInput.value.trim() : '';
+            const month = monthInput ? monthInput.value : '';
+
+            if (!month) {
+                alert('請選擇查詢月份');
+                return;
+            }
+
+            resultDiv.innerHTML = '<p style="color: #7f8c8d; text-align: center;">載入中...</p>';
+
+            fetch(`/webclock/admin/records?user_id=${encodeURIComponent(userId)}&month=${encodeURIComponent(month)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (!data.success) {
+                    resultDiv.innerHTML = `<p style="color: #e74c3c; text-align: center;">查詢失敗：${data.error || '未知錯誤'}</p>`;
+                    return;
+                }
+
+                if (!data.records || data.records.length === 0) {
+                    resultDiv.innerHTML = '<p style="color: #7f8c8d; text-align: center;">查無相關出勤紀錄。</p>';
+                    return;
+                }
+
+                let html = `
+                    <table>
+                        <thead>
                             <tr>
-                                <td><strong>${r.username}</strong></td>
-                                <td>${r.work_date}</td>
-                                <td>${r.clock_in || '--'}</td>
-                                <td>${r.clock_out || '--'}</td>
-                                <td><span class="badge badge-success">${r.status || '正常'}</span></td>
-                                <td>${r.work_hours} 小時</td>
-                            </tr>`;
-                    });
-                    
-                    html += '</tbody></table>';
-                    resultDiv.innerHTML = html;
-                })
-                .catch(err => {
-                    console.error(err);
-                    resultDiv.innerHTML = '<p style="color: #e74c3c;">查詢失敗或 API 回傳異常</p>';
+                                <th>員工 ID</th>
+                                <th>日期</th>
+                                <th>上班時間</th>
+                                <th>下班時間</th>
+                                <th>當日工時</th>
+                                <th>狀態</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+
+                data.records.forEach(r => {
+                    let statusBadge = '<span class="badge badge-success">正常</span>';
+                    if (r.status === 'missed_fixed') {
+                        statusBadge = '<span class="badge badge-info">補打卡</span>';
+                    } else if (r.status && r.status.startsWith('leave')) {
+                        statusBadge = '<span class="badge badge-warning">請假</span>';
+                    }
+
+                    html += `
+                        <tr>
+                            <td>${r.user_id}</td>
+                            <td>${r.work_date}</td>
+                            <td>${r.clock_in || '--'}</td>
+                            <td>${r.clock_out || '--'}</td>
+                            <td>${r.work_hours} 小時</td>
+                            <td>${statusBadge}</td>
+                        </tr>
+                    `;
                 });
+
+                html += '</tbody></table>';
+                resultDiv.innerHTML = html;
+            })
+            .catch(err => {
+                console.error('查詢紀錄失敗:', err);
+                resultDiv.innerHTML = '<p style="color: #e74c3c; text-align: center;">伺服器連線失敗，請檢查網路狀態</p>';
+            });
         }
         {% endif %}
     </script>
