@@ -32,6 +32,16 @@ def parse_datetime_safe(val):
                 continue
     return None
 
+def format_val_str(val):
+    """將 datetime/time/date 或 None 物件轉為安全字串以供 JSON 回傳"""
+    if val is None:
+        return ''
+    if isinstance(val, datetime):
+        return val.strftime('%Y-%m-%d %H:%M:%S')
+    if isinstance(val, (time, timedelta)):
+        return str(val)
+    return str(val)
+
 webclock_bp = Blueprint('webclock', __name__)
 
 # ==========================================
@@ -277,8 +287,8 @@ def my_records():
             records_display.append({
                 "id": rec_id,
                 "work_date": str(work_date),
-                "clock_in": c_in.strftime('%H:%M:%S') if isinstance(c_in, datetime) else (str(c_in)[11:19] if c_in else '--:--:--'),
-                "clock_out": c_out.strftime('%H:%M:%S') if isinstance(c_out, datetime) else (str(c_out)[11:19] if c_out else '--:--:--'),
+                "clock_in": format_val_str(c_in),
+                "clock_out": format_val_str(c_out),
                 "work_hours": hrs,
                 "status": status_str,
                 "break_start": str(b_s) if b_s else '12:00:00',
@@ -338,10 +348,10 @@ def submit_request():
         cur.execute("""
             INSERT INTO attendance_requests 
             (user_id, request_type, target_date, start_time, end_time, break_start, break_end,
-             reason, leave_type, status, original_record_id, original_clock_in, original_clock_out)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s)
+             reason, leave_type, status, original_record_id, original_clock_in, original_clock_out, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s, %s, %s)
         """, (applicant_id, req_type, target_date, start_time_str, end_time_str, break_start_str, break_end_str,
-              reason, leave_type, original_record_id, orig_in, orig_out))
+              reason, leave_type, original_record_id, orig_in, orig_out, get_taiwan_now()))
         
         conn.commit()
         return jsonify({"success": True})
@@ -366,10 +376,25 @@ def get_requests_history():
     cur = conn.cursor()
     try:
         sql = """
-            SELECT r.id, applicant.username AS applicant_name, r.request_type, r.target_date,
-                   r.start_time, r.end_time, r.break_start, r.break_end, r.reason, r.leave_type, 
-                   r.status, reviewer.username AS reviewer_name, r.reviewed_at,
-                   r.original_clock_in, r.original_clock_out
+            SELECT 
+                r.id,
+                applicant.username AS applicant_name,
+                r.request_type,
+                r.target_date,
+                r.start_time,
+                r.end_time,
+                r.break_start,
+                r.break_end,
+                r.reason,
+                r.leave_type,
+                r.status,
+                r.created_at,
+                r.reviewed_by,
+                reviewer.username AS reviewer_name,
+                r.reviewed_at,
+                r.original_record_id,
+                r.original_clock_in,
+                r.original_clock_out
             FROM attendance_requests r
             JOIN users applicant ON r.user_id = applicant.id
             LEFT JOIN users reviewer ON r.reviewed_by = reviewer.id
@@ -385,24 +410,25 @@ def get_requests_history():
         
         requests_list = []
         for row in rows:
-            req_id, app_name, req_type, target_date, s_time, e_time, b_s, b_e, reason, leave_type, status, rev_name, rev_at, orig_in, orig_out = row
-            
             requests_list.append({
-                'id': req_id,
-                'applicant_name': app_name,
-                'request_type': req_type,
-                'target_date': str(target_date) if target_date else '',
-                'start_time': str(s_time) if s_time else '',
-                'end_time': str(e_time) if e_time else '',
-                'break_start': str(b_s) if b_s else '',
-                'break_end': str(b_e) if b_e else '',
-                'reason': reason or '',
-                'leave_type': leave_type or '',
-                'status': status,
-                'reviewer_name': rev_name or '待審核',
-                'reviewed_at': rev_at.strftime('%Y-%m-%d %H:%M:%S') if rev_at else '',
-                'original_clock_in': orig_in.strftime('%Y-%m-%d %H:%M:%S') if orig_in else '',
-                'original_clock_out': orig_out.strftime('%Y-%m-%d %H:%M:%S') if orig_out else ''
+                'id': row[0],
+                'applicant_name': row[1] or '',
+                'request_type': row[2] or '',
+                'target_date': format_val_str(row[3]),
+                'start_time': format_val_str(row[4]),
+                'end_time': format_val_str(row[5]),
+                'break_start': format_val_str(row[6]),
+                'break_end': format_val_str(row[7]),
+                'reason': row[8] or '',
+                'leave_type': row[9] or '',
+                'status': row[10] or 'pending',
+                'created_at': format_val_str(row[11]),
+                'reviewed_by': row[12],
+                'reviewer_name': row[13] or '待審核',
+                'reviewed_at': format_val_str(row[14]),
+                'original_record_id': row[15],
+                'original_clock_in': format_val_str(row[16]),
+                'original_clock_out': format_val_str(row[17])
             })
             
         return jsonify({'success': True, 'requests': requests_list})
