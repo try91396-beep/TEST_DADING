@@ -16,6 +16,52 @@ def get_taiwan_now():
 webclock_bp = Blueprint('webclock', __name__)
 
 # ==========================================
+# 🧮 假勤與薪資計算輔助函式
+# ==========================================
+
+def calculate_user_salary(salary_type, hourly_wage, monthly_wage, records):
+    """
+    依據出勤與請假紀錄計算試算薪資與時數統計
+    records 格式為: [(work_hours, status), ...]
+    """
+    hourly_wage = float(hourly_wage) if hourly_wage is not None else 183.0
+    monthly_wage = float(monthly_wage) if monthly_wage is not None else 27470.0
+    hourly_rate_for_monthly = monthly_wage / 240.0  # 月薪制之時薪基準 (每月以 30天/240小時 計算)
+
+    work_hours_total = 0.0        # 實際出勤時數
+    full_pay_leave_hours = 0.0    # 特休、公假、婚喪假 (全薪)
+    half_pay_leave_hours = 0.0    # 病假 (半薪)
+    unpaid_leave_hours = 0.0      # 事假 (無薪)
+
+    for hrs, status in records:
+        hrs = float(hrs or 0)
+        status_str = str(status or '').lower()
+
+        if 'sick' in status_str or '病假' in status_str:
+            half_pay_leave_hours += hrs
+        elif 'personal' in status_str or '事假' in status_str:
+            unpaid_leave_hours += hrs
+        elif 'annual' in status_str or 'official' in status_str or '特休' in status_str or '公假' in status_str or 'leave' in status_str:
+            full_pay_leave_hours += hrs
+        else:
+            work_hours_total += hrs
+
+    if salary_type == 'hourly':
+        # 時薪制：(出勤工時 * 時薪) + (全薪假時數 * 時薪) + (半薪假時數 * 時薪 * 0.5)
+        estimated_salary = (work_hours_total * hourly_wage) + \
+                           (full_pay_leave_hours * hourly_wage) + \
+                           (half_pay_leave_hours * hourly_wage * 0.5)
+    else:
+        # 月薪制：底薪 - (半薪假扣款) - (事假無薪扣款)
+        sick_deduction = half_pay_leave_hours * hourly_rate_for_monthly * 0.5
+        personal_deduction = unpaid_leave_hours * hourly_rate_for_monthly * 1.0
+        estimated_salary = monthly_wage - sick_deduction - personal_deduction
+
+    total_recorded_hours = work_hours_total + full_pay_leave_hours + half_pay_leave_hours + unpaid_leave_hours
+
+    return round(total_recorded_hours, 2), int(round(estimated_salary))
+
+# ==========================================
 # 🛡️ 打卡系統專屬登入與登出
 # ==========================================
 
@@ -73,7 +119,6 @@ def index():
     current_month = get_taiwan_now().strftime('%Y-%m')
     pending_requests = []
 
-    # 關鍵修正：若當前使用者為管理員，查詢所有待審核 (pending) 的請假與補打卡單據
     if session.get('role') == 'admin':
         conn = get_db_connection()
         cur = conn.cursor()
@@ -90,14 +135,13 @@ def index():
             for row in rows:
                 req_id, username, req_type, target_date, start_time, end_time, reason, leave_type, status, user_id = row
                 
-                # 時間格式化處理
                 start_str = start_time.strftime('%H:%M:%S') if isinstance(start_time, datetime) else (str(start_time)[11:19] if start_time else '')
                 end_str = end_time.strftime('%H:%M:%S') if isinstance(end_time, datetime) else (str(end_time)[11:19] if end_time else '')
                 
                 pending_requests.append({
                     'id': req_id,
                     'username': username,
-                    'user_id': username,  # 供前端模板表格顯示員工 ID / 姓名
+                    'user_id': username,
                     'request_type': req_type,
                     'target_date': str(target_date) if target_date else '',
                     'start_time': start_str,
@@ -126,7 +170,6 @@ def punch():
     cur = conn.cursor()
     try:
         if action == 'in':
-            # 1. 防重複打卡：檢查是否尚有未結算（未下班）的打卡紀錄
             cur.execute("""
                 SELECT id, clock_in 
                 FROM clock_records 
@@ -142,14 +185,12 @@ def punch():
                     "error": "您目前已有進行中的班次（尚未打下班卡），請先打下班卡後再重新上班！"
                 }), 400
             
-            # 2. 確認無進行中班次後，新增本次上班打卡
             cur.execute("""
                 INSERT INTO clock_records (user_id, work_date, clock_in) 
                 VALUES (%s, %s, %s) RETURNING id
             """, (user_id, today, now))
             
         elif action == 'out':
-            # 1. 支援跨夜班：不限定 work_date，精確尋找最新一筆未下班的紀錄
             cur.execute("""
                 SELECT id, clock_in 
                 FROM clock_records 
@@ -164,14 +205,12 @@ def punch():
                 record_id, clock_in = result[0], result[1]
                 hours = (now - clock_in).total_seconds() / 3600
                 
-                # 防呆保護：若超過 36 小時未下班，阻擋並引導走補打卡流程
                 if hours > 36:
                     return jsonify({
                         "success": False, 
                         "error": "距離上次打卡已超過 36 小時，請聯絡管理員或申請補打卡！"
                     }), 400
 
-                # 2. 更新該筆進行中紀錄的下班時間與總工時
                 cur.execute("""
                     UPDATE clock_records 
                     SET clock_out = %s, work_hours = %s 
@@ -204,7 +243,6 @@ def my_records():
     conn = get_db_connection()
     cur = conn.cursor()
     try:
-        # 1. 取得員工薪資設定
         cur.execute("SELECT hourly_wage, salary_type, monthly_wage FROM users WHERE id = %s", (user_id,))
         user_row = cur.fetchone()
         
@@ -212,7 +250,6 @@ def my_records():
         hourly_wage = float(user_row[0]) if user_row and user_row[0] is not None else 183.0
         monthly_wage = float(user_row[2]) if user_row and user_row[2] is not None else 27470.0
         
-        # 2. 取得當月打卡與假勤紀錄
         cur.execute("""
             SELECT work_date, clock_in, clock_out, work_hours, status 
             FROM clock_records 
@@ -220,30 +257,29 @@ def my_records():
             ORDER BY work_date DESC
         """, (user_id, month))
         
-        records = []
-        total_hours = 0.0
-        for r in cur.fetchall():
+        raw_records = cur.fetchall()
+        records_display = []
+        calc_tuples = []
+
+        for r in raw_records:
             hrs = float(r[3] or 0)
-            total_hours += hrs
-            records.append({
+            status = r[4] or 'normal'
+            calc_tuples.append((hrs, status))
+            records_display.append({
                 "work_date": str(r[0]),
-                "clock_in": r[1].strftime('%H:%M:%S') if r[1] else None,
-                "clock_out": r[2].strftime('%H:%M:%S') if r[2] else None,
+                "clock_in": r[1].strftime('%H:%M:%S') if isinstance(r[1], datetime) else (str(r[1]) if r[1] else None),
+                "clock_out": r[2].strftime('%H:%M:%S') if isinstance(r[2], datetime) else (str(r[2]) if r[2] else None),
                 "work_hours": hrs,
-                "status": r[4] or 'normal'
+                "status": status
             })
             
-        # 依據薪資類型試算當月薪資
-        if salary_type == 'hourly':
-            estimated_salary = int(total_hours * hourly_wage)
-        else:
-            estimated_salary = int(monthly_wage)
+        total_hours, estimated_salary = calculate_user_salary(salary_type, hourly_wage, monthly_wage, calc_tuples)
         
         return jsonify({
             "success": True,
-            "total_hours": round(total_hours, 2),
+            "total_hours": total_hours,
             "estimated_salary": estimated_salary,
-            "records": records
+            "records": records_display
         })
     except Exception as e:
         print(f"Fetch Records Error: {e}")
@@ -268,7 +304,6 @@ def submit_request():
     reason = data.get('reason', '')
     leave_type = data.get('leave_type') or None
     
-    # 將前端可能傳入的空字串 "" 轉為 Python None (資料庫 NULL)
     start_time_str = data.get('start_time') if data.get('start_time') else None
     end_time_str = data.get('end_time') if data.get('end_time') else None
     
@@ -322,7 +357,6 @@ def get_admin_requests():
         for row in rows:
             req_id, username, req_type, target_date, start_time, end_time, reason, leave_type, status = row
             
-            # 安全轉換時間字串格式
             start_str = start_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(start_time, datetime) else (str(start_time) if start_time else '')
             end_str = end_time.strftime('%Y-%m-%d %H:%M:%S') if isinstance(end_time, datetime) else (str(end_time) if end_time else '')
             
@@ -350,7 +384,7 @@ def get_admin_requests():
 @login_required
 @role_required('admin')
 def approve_request(req_id):
-    """同意補打卡或請假申請"""
+    """同意補打卡或請假申請」"""
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -361,7 +395,6 @@ def approve_request(req_id):
             user_id, req_type, target_date, start_time, end_time, leave_type = req
             
             if req_type == 'missed_punch' and start_time and end_time:
-                # 計算時間差
                 if isinstance(start_time, str):
                     start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
                 if isinstance(end_time, str):
@@ -377,21 +410,39 @@ def approve_request(req_id):
                 """, (user_id, target_date, start_time, end_time, round(hours, 2)))
                 
             elif req_type == 'leave':
-                # 處理請假登記
+                # 計算請假起迄時間與請假總時數
                 hours = 8.0
+                target_dt = datetime.strptime(str(target_date), '%Y-%m-%d') if isinstance(target_date, str) else target_date
+
                 if start_time and end_time:
                     if isinstance(start_time, str):
                         start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
                     if isinstance(end_time, str):
                         end_time = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
                     hours = (end_time - start_time).total_seconds() / 3600
-                    
+                elif start_time and not end_time:
+                    if isinstance(start_time, str):
+                        start_time = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    end_time = start_time + timedelta(hours=8)
+                    hours = 8.0
+                else:
+                    # 預設時間帶入當天 09:00 至 18:00
+                    start_time = datetime.combine(target_dt, datetime.min.time()).replace(hour=9, minute=0)
+                    end_time = datetime.combine(target_dt, datetime.min.time()).replace(hour=18, minute=0)
+                    hours = 8.0
+
+                status_str = f'leave_{leave_type}' if leave_type else 'leave'
+
+                # 寫入出勤紀錄（包含起迄時間、請假時數、假別狀態）
                 cur.execute("""
-                    INSERT INTO clock_records (user_id, work_date, work_hours, status)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO clock_records (user_id, work_date, clock_in, clock_out, work_hours, status)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (user_id, work_date) DO UPDATE 
-                    SET status = EXCLUDED.status
-                """, (user_id, target_date, 0, f'leave_{leave_type}'))
+                    SET clock_in = EXCLUDED.clock_in, 
+                        clock_out = EXCLUDED.clock_out, 
+                        work_hours = EXCLUDED.work_hours, 
+                        status = EXCLUDED.status
+                """, (user_id, target_date, start_time, end_time, round(hours, 2), status_str))
                 
             cur.execute("UPDATE attendance_requests SET status = 'approved' WHERE id = %s", (req_id,))
             conn.commit()
@@ -444,14 +495,14 @@ def manage_salaries():
             raw_monthly = request.form.get('monthly_wage')
 
             if salary_type == 'monthly':
-                hourly_wage = None  # 切換為月薪時，清空時薪
+                hourly_wage = None
                 try:
                     monthly_wage = float(raw_monthly) if raw_monthly else 27470
                 except (ValueError, TypeError):
                     monthly_wage = 27470
             else:
                 salary_type = 'hourly'
-                monthly_wage = None  # 切換為時薪時，清空月薪
+                monthly_wage = None
                 try:
                     hourly_wage = float(raw_hourly) if raw_hourly else 183
                 except (ValueError, TypeError):
@@ -469,7 +520,6 @@ def manage_salaries():
             flash("薪資設定已成功更新！", "success")
             return redirect(url_for('webclock.manage_salaries'))
 
-        # GET 請求：查詢所有員工薪資資料並渲染頁面
         cur.execute("""
             SELECT id, username, role, salary_type, hourly_wage, monthly_wage 
             FROM users 
@@ -513,36 +563,46 @@ def manage_salaries():
 @login_required
 @role_required('admin')
 def export_salary():
+    """匯出當月薪資報表 Excel"""
     year_month = request.args.get('month', get_taiwan_now().strftime('%Y-%m'))
     
     conn = get_db_connection()
-    query = """
-        SELECT u.username, u.salary_type, u.hourly_wage, u.monthly_wage, 
-               COALESCE(SUM(c.work_hours), 0) as total_hours
-        FROM users u
-        LEFT JOIN clock_records c ON u.id = c.user_id AND TO_CHAR(c.work_date, 'YYYY-MM') = %s
-        GROUP BY u.id
-    """
-    df = pd.read_sql_query(query, conn, params=(year_month,))
-    conn.close()
-    
-    def calculate_pay(row):
-        if row.get('salary_type') == 'hourly':
-            return row['total_hours'] * (row.get('hourly_wage') or 0)
-        else:
-            monthly_wage = row.get('monthly_wage') or 0
-            leave_hours = max(0, 160 - row['total_hours'])
-            hourly_rate = monthly_wage / 240 
-            return monthly_wage - (leave_hours * hourly_rate)
-            
-    df['calculated_salary'] = df.apply(calculate_pay, axis=1)
-    
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Salary Report')
-    output.seek(0)
-    
-    return send_file(output, as_attachment=True, download_name=f'Salary_{year_month}.xlsx')
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT id, username, salary_type, hourly_wage, monthly_wage FROM users ORDER BY id ASC")
+        users = cur.fetchall()
+
+        data = []
+        for u in users:
+            u_id, username, salary_type, hourly_wage, monthly_wage = u
+            cur.execute("""
+                SELECT work_hours, status 
+                FROM clock_records 
+                WHERE user_id = %s AND TO_CHAR(work_date, 'YYYY-MM') = %s
+            """, (u_id, year_month))
+            user_records = cur.fetchall()
+
+            total_hrs, est_pay = calculate_user_salary(salary_type, hourly_wage, monthly_wage, user_records)
+
+            data.append({
+                '員工姓名': username,
+                '計薪方式': '時薪' if salary_type == 'hourly' else '月薪',
+                '時薪/月薪': hourly_wage if salary_type == 'hourly' else monthly_wage,
+                '當月累計時數': total_hrs,
+                '試算應發薪資': est_pay
+            })
+
+        df = pd.DataFrame(data)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='薪資明細表')
+        output.seek(0)
+
+        return send_file(output, as_attachment=True, download_name=f'Salary_{year_month}.xlsx')
+    finally:
+        cur.close()
+        conn.close()
 
 @webclock_bp.route('/admin/records', methods=['GET'])
 @login_required
