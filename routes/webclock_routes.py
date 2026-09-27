@@ -14,6 +14,24 @@ def get_taiwan_now():
     """取得台灣當前時間 (無時區標籤)"""
     return datetime.now(TAIWAN_TZ).replace(tzinfo=None)
 
+def parse_datetime_safe(val):
+    """安全解析多種格式的 Datetime/Time 物件或字串"""
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val
+    if isinstance(val, time):
+        return val
+    if isinstance(val, str):
+        val = val.strip()
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M', '%H:%M:%S', '%H:%M'):
+            try:
+                dt = datetime.strptime(val, fmt)
+                return dt if 'Y' in fmt else dt.time()
+            except ValueError:
+                continue
+    return None
+
 webclock_bp = Blueprint('webclock', __name__)
 
 # ==========================================
@@ -21,7 +39,7 @@ webclock_bp = Blueprint('webclock', __name__)
 # ==========================================
 
 def round_clock_in_5min(dt):
-    """上班打卡：無條件進位 (Ceil) 至下一個 5 分鐘 (例如: 08:56 -> 09:00, 09:01 -> 09:05)"""
+    """上班打卡：無條件進位 (Ceil) 至下一個 5 分鐘"""
     if not dt: return None
     minute = dt.minute
     second = dt.second
@@ -32,7 +50,7 @@ def round_clock_in_5min(dt):
     return rounded.replace(second=0, microsecond=0)
 
 def round_clock_out_5min(dt):
-    """下班打卡：無條件捨去 (Floor) 至前一個 5 分鐘 (例如: 18:04 -> 18:00, 18:05 -> 18:05)"""
+    """下班打卡：無條件捨去 (Floor) 至前一個 5 分鐘"""
     if not dt: return None
     minute = dt.minute
     minus_min = minute % 5
@@ -42,10 +60,13 @@ def round_clock_out_5min(dt):
 def calculate_net_work_hours(clock_in, clock_out, break_start_time=None, break_end_time=None):
     """
     計算實質工時：
-    1. 採用 5分鐘進捨規則 計算有效上班/下班時間
+    1. 採用 5分鐘進捨規則計算有效上班/下班時間
     2. 自動扣除休息/午休時間 (如 12:00 - 13:00)
     """
-    if not clock_in or not clock_out:
+    clock_in = parse_datetime_safe(clock_in)
+    clock_out = parse_datetime_safe(clock_out)
+
+    if not clock_in or not clock_out or not isinstance(clock_in, datetime) or not isinstance(clock_out, datetime):
         return 0.0
 
     eff_in = round_clock_in_5min(clock_in)
@@ -60,24 +81,20 @@ def calculate_net_work_hours(clock_in, clock_out, break_start_time=None, break_e
     break_seconds = 0.0
     if break_start_time and break_end_time:
         try:
-            if isinstance(break_start_time, str):
-                break_start_time = datetime.strptime(break_start_time, '%H:%M').time()
-            elif isinstance(break_start_time, datetime):
-                break_start_time = break_start_time.time()
+            bs_time = parse_datetime_safe(break_start_time)
+            be_time = parse_datetime_safe(break_end_time)
 
-            if isinstance(break_end_time, str):
-                break_end_time = datetime.strptime(break_end_time, '%H:%M').time()
-            elif isinstance(break_end_time, datetime):
-                break_end_time = break_end_time.time()
+            if isinstance(bs_time, datetime): bs_time = bs_time.time()
+            if isinstance(be_time, datetime): be_time = be_time.time()
 
-            bs_dt = datetime.combine(eff_in.date(), break_start_time)
-            be_dt = datetime.combine(eff_in.date(), break_end_time)
+            if isinstance(bs_time, time) and isinstance(be_time, time):
+                bs_dt = datetime.combine(eff_in.date(), bs_time)
+                be_dt = datetime.combine(eff_in.date(), be_time)
 
-            # 當休息時間重疊於上班期間時扣除
-            overlap_start = max(eff_in, bs_dt)
-            overlap_end = min(eff_out, be_dt)
-            if overlap_end > overlap_start:
-                break_seconds = (overlap_end - overlap_start).total_seconds()
+                overlap_start = max(eff_in, bs_dt)
+                overlap_end = min(eff_out, be_dt)
+                if overlap_end > overlap_start:
+                    break_seconds = (overlap_end - overlap_start).total_seconds()
         except Exception as e:
             print(f"Break time parse error: {e}")
 
@@ -185,10 +202,11 @@ def punch():
             if cur.fetchone():
                 return jsonify({"success": False, "error": "您尚有進行中的班次，請先打下班卡！"}), 400
             
-            # 寫入真實打卡時間 now，預設休息時間 12:00 ~ 13:00
             cur.execute("""
                 INSERT INTO clock_records (user_id, work_date, clock_in, break_start, break_end) 
                 VALUES (%s, %s, %s, '12:00:00', '13:00:00')
+                ON CONFLICT (user_id, work_date) DO UPDATE 
+                SET clock_in = EXCLUDED.clock_in, clock_out = NULL, break_start = '12:00:00', break_end = '13:00:00'
             """, (user_id, today, now))
             
         elif action == 'out':
@@ -201,7 +219,6 @@ def punch():
             rec = cur.fetchone()
             if rec:
                 record_id, clock_in, b_start, b_end = rec
-                # 採用 5分鐘進捨規則與休息時間扣除演算法
                 net_hours = calculate_net_work_hours(clock_in, now, b_start, b_end)
                 
                 cur.execute("""
@@ -298,17 +315,16 @@ def submit_request():
     
     start_time_str = data.get('start_time') or None
     end_time_str = data.get('end_time') or None
-    break_start_str = data.get('break_start') or '12:00'
-    break_end_str = data.get('break_end') or '13:00'
+    break_start_str = data.get('break_start') or '12:00:00'
+    break_end_str = data.get('break_end') or '13:00:00'
     
-    original_record_id = data.get('original_record_id') # 刪除申請專用
+    original_record_id = data.get('original_record_id')
     
     conn = get_db_connection()
     cur = conn.cursor()
     try:
         orig_in, orig_out = None, None
         
-        # 若為刪除申請，預先備份與快照該筆打卡紀錄的上班與下班卡時間
         if req_type == 'delete_record' and original_record_id:
             cur.execute("SELECT work_date, clock_in, clock_out FROM clock_records WHERE id = %s", (original_record_id,))
             record_to_del = cur.fetchone()
@@ -343,11 +359,6 @@ def submit_request():
 @webclock_bp.route('/requests/history', methods=['GET'])
 @login_required
 def get_requests_history():
-    """
-    查詢申請與審核歷史紀錄：
-    - Admin: 可查看所有人
-    - Staff: 僅能查看自己提交的申請，但可看見審核人員 (reviewed_by) 姓名
-    """
     user_id = session['user_id']
     role = session.get('role')
     
@@ -432,12 +443,15 @@ def approve_request(req_id):
 
         # 2. 處理「補打卡」申請
         elif req_type == 'missed_punch':
-            if isinstance(s_time, str):
-                s_time = datetime.strptime(s_time, '%Y-%m-%d %H:%M:%S')
-            if isinstance(e_time, str):
-                e_time = datetime.strptime(e_time, '%Y-%m-%d %H:%M:%S')
+            s_dt = parse_datetime_safe(s_time)
+            e_dt = parse_datetime_safe(e_time)
 
-            net_hours = calculate_net_work_hours(s_time, e_time, b_start, b_end)
+            if isinstance(s_dt, time) and target_date:
+                s_dt = datetime.combine(target_date, s_dt)
+            if isinstance(e_dt, time) and target_date:
+                e_dt = datetime.combine(target_date, e_dt)
+
+            net_hours = calculate_net_work_hours(s_dt, e_dt, b_start, b_end)
 
             cur.execute("""
                 INSERT INTO clock_records (user_id, work_date, clock_in, clock_out, break_start, break_end, work_hours, status)
@@ -446,17 +460,26 @@ def approve_request(req_id):
                 SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out,
                     break_start = EXCLUDED.break_start, break_end = EXCLUDED.break_end,
                     work_hours = EXCLUDED.work_hours, status = 'missed_fixed'
-            """, (applicant_id, target_date, s_time, e_time, b_start, b_end, net_hours))
+            """, (applicant_id, target_date, s_dt, e_dt, b_start, b_end, net_hours))
 
         # 3. 處理「請假」申請
         elif req_type == 'leave':
-            target_dt = datetime.strptime(str(target_date), '%Y-%m-%d') if isinstance(target_date, str) else target_date
-            if not s_time:
-                s_time = datetime.combine(target_dt, time(9, 0))
-            if not e_time:
-                e_time = datetime.combine(target_dt, time(18, 0))
+            target_dt = datetime.strptime(str(target_date), '%Y-%m-%d').date() if isinstance(target_date, str) else target_date
 
-            net_hours = calculate_net_work_hours(s_time, e_time, b_start, b_end)
+            s_dt = parse_datetime_safe(s_time)
+            e_dt = parse_datetime_safe(e_time)
+
+            if not s_dt:
+                s_dt = datetime.combine(target_dt, time(9, 0))
+            elif isinstance(s_dt, time):
+                s_dt = datetime.combine(target_dt, s_dt)
+
+            if not e_dt:
+                e_dt = datetime.combine(target_dt, time(18, 0))
+            elif isinstance(e_dt, time):
+                e_dt = datetime.combine(target_dt, e_dt)
+
+            net_hours = calculate_net_work_hours(s_dt, e_dt, b_start, b_end)
             status_str = f'leave_{leave_type}' if leave_type else 'leave'
 
             cur.execute("""
@@ -466,7 +489,7 @@ def approve_request(req_id):
                 SET clock_in = EXCLUDED.clock_in, clock_out = EXCLUDED.clock_out,
                     break_start = EXCLUDED.break_start, break_end = EXCLUDED.break_end,
                     work_hours = EXCLUDED.work_hours, status = EXCLUDED.status
-            """, (applicant_id, target_date, s_time, e_time, b_start, b_end, net_hours, status_str))
+            """, (applicant_id, target_date, s_dt, e_dt, b_start, b_end, net_hours, status_str))
 
         # 更新申請單狀態並紀錄審核人與審核時間
         cur.execute("""
