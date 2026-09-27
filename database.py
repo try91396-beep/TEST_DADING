@@ -136,7 +136,9 @@ def init_db():
                 clock_in TIMESTAMP,               -- 上班時間
                 clock_out TIMESTAMP,              -- 下班時間
                 work_hours NUMERIC(5, 2) DEFAULT 0, -- 結算工時
-                status VARCHAR(20) DEFAULT 'normal' -- 'normal'(正常), 'leave'(請假), 'missed_fixed'(補登)
+                status VARCHAR(20) DEFAULT 'normal', -- 'normal'(正常), 'leave'(請假), 'missed_fixed'(補登)
+                break_start TIME DEFAULT '12:00:00', -- 休息開始時間
+                break_end TIME DEFAULT '13:00:00'    -- 休息結束時間
             );
             CREATE INDEX IF NOT EXISTS idx_work_date ON clock_records(work_date);
         ''')
@@ -151,9 +153,16 @@ def init_db():
                 target_date DATE NOT NULL,          -- 申請日期
                 start_time TIMESTAMP,               -- 請假/補打卡 開始時間
                 end_time TIMESTAMP,                -- 請假/補打卡 結束時間
-                reason TEXT,                       -- 申請理由
+                reason TEXT,                        -- 申請理由
                 status VARCHAR(20) DEFAULT 'pending', -- 'pending'(待審), 'approved'(通過), 'rejected'(退回)
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                reviewed_by INTEGER REFERENCES users(id), -- 審核人 ID
+                reviewed_at TIMESTAMP,                    -- 審核時間
+                break_start TIME,                         -- 休息開始時間
+                break_end TIME,                           -- 休息結束時間
+                original_record_id INTEGER,               -- 原始紀錄 ID
+                original_clock_in TIMESTAMP,              -- 原始上班打卡快照
+                original_clock_out TIMESTAMP              -- 原始下班打卡快照
             );
         ''')
 
@@ -194,8 +203,19 @@ def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_wage NUMERIC(10, 2) DEFAULT 183;",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_wage NUMERIC(10, 2) DEFAULT 27470;",
 
+            # --- Clock Records 表格補全 ---
+            "ALTER TABLE clock_records ADD COLUMN IF NOT EXISTS break_start TIME DEFAULT '12:00:00';",
+            "ALTER TABLE clock_records ADD COLUMN IF NOT EXISTS break_end TIME DEFAULT '13:00:00';",
+
             # --- Attendance Requests 表格補全 ---
             "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS leave_type VARCHAR(50);",
+            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id);",
+            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;",
+            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS break_start TIME;",
+            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS break_end TIME;",
+            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS original_record_id INTEGER;",
+            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS original_clock_in TIMESTAMP;",
+            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS original_clock_out TIMESTAMP;",
 
             # --- Products 表格補全 ---
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 100;",
