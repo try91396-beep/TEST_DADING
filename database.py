@@ -131,15 +131,12 @@ def init_db():
         cur.execute('''
             CREATE TABLE IF NOT EXISTS clock_records (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                user_id INTEGER REFERENCES users(id),
                 work_date DATE NOT NULL,          -- 工作日期 (用於快速查詢特定月份/年份)
                 clock_in TIMESTAMP,               -- 上班時間
                 clock_out TIMESTAMP,              -- 下班時間
                 work_hours NUMERIC(5, 2) DEFAULT 0, -- 結算工時
-                status VARCHAR(20) DEFAULT 'normal', -- 'normal', 'leave', 'missed_fixed'
-                break_start TIME DEFAULT '12:00:00', -- 休息開始時間
-                break_end TIME DEFAULT '13:00:00',   -- 休息結束時間
-                CONSTRAINT unique_user_work_date UNIQUE (user_id, work_date) -- 必須加入此唯一索引以支援 ON CONFLICT
+                status VARCHAR(20) DEFAULT 'normal' -- 'normal'(正常), 'leave'(請假), 'missed_fixed'(補登)
             );
             CREATE INDEX IF NOT EXISTS idx_work_date ON clock_records(work_date);
         ''')
@@ -148,22 +145,15 @@ def init_db():
         cur.execute('''
             CREATE TABLE IF NOT EXISTS attendance_requests (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                request_type VARCHAR(20) NOT NULL, -- 'leave', 'missed_punch', 'delete_record'
+                user_id INTEGER REFERENCES users(id),
+                request_type VARCHAR(20) NOT NULL, -- 'leave' (請假) 或 'missed_punch' (補打卡)
                 leave_type VARCHAR(50),             -- 請假類別 (事假/病假/特休等)
                 target_date DATE NOT NULL,          -- 申請日期
                 start_time TIMESTAMP,               -- 請假/補打卡 開始時間
                 end_time TIMESTAMP,                -- 請假/補打卡 結束時間
-                reason TEXT,                        -- 申請理由
-                status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'approved', 'rejected'
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                reviewed_by INTEGER REFERENCES users(id), -- 審核人 ID
-                reviewed_at TIMESTAMP,                    -- 審核時間
-                break_start TIME DEFAULT '12:00:00',      -- 休息開始時間
-                break_end TIME DEFAULT '13:00:00',        -- 休息結束時間
-                original_record_id INTEGER,               -- 原始紀錄 ID
-                original_clock_in TIMESTAMP,              -- 原始上班打卡快照
-                original_clock_out TIMESTAMP              -- 原始下班打卡快照
+                reason TEXT,                       -- 申請理由
+                status VARCHAR(20) DEFAULT 'pending', -- 'pending'(待審), 'approved'(通過), 'rejected'(退回)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
 
@@ -186,7 +176,7 @@ def init_db():
             )
             print(f"✅ 預設 Admin 帳號建立完成。帳號: {default_username} / 密碼: {default_password}")
 
-        # 9. 欄位與約束自動補全 (Migration)
+        # 9. 欄位自動補全 (Migration)
         alters = [
             # --- Orders 表格補全 ---
             "ALTER TABLE orders ADD COLUMN IF NOT EXISTS lang VARCHAR(10) DEFAULT 'zh';",
@@ -204,20 +194,8 @@ def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS hourly_wage NUMERIC(10, 2) DEFAULT 183;",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS monthly_wage NUMERIC(10, 2) DEFAULT 27470;",
 
-            # --- Clock Records 表格與約束補全 ---
-            "ALTER TABLE clock_records ADD COLUMN IF NOT EXISTS break_start TIME DEFAULT '12:00:00';",
-            "ALTER TABLE clock_records ADD COLUMN IF NOT EXISTS break_end TIME DEFAULT '13:00:00';",
-            "ALTER TABLE clock_records ADD CONSTRAINT unique_user_work_date UNIQUE (user_id, work_date);",
-
             # --- Attendance Requests 表格補全 ---
             "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS leave_type VARCHAR(50);",
-            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS reviewed_by INTEGER REFERENCES users(id);",
-            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;",
-            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS break_start TIME DEFAULT '12:00:00';",
-            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS break_end TIME DEFAULT '13:00:00';",
-            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS original_record_id INTEGER;",
-            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS original_clock_in TIMESTAMP;",
-            "ALTER TABLE attendance_requests ADD COLUMN IF NOT EXISTS original_clock_out TIMESTAMP;",
 
             # --- Products 表格補全 ---
             "ALTER TABLE products ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 100;",
@@ -238,8 +216,7 @@ def init_db():
             try:
                 cur.execute(cmd)
             except Exception as e:
-                # 忽略欄位或約束已存在的警告
-                if 'duplicate' not in str(e).lower() and 'already exists' not in str(e).lower():
+                if 'duplicate' not in str(e).lower() and 'exists' not in str(e).lower():
                     print(f"⚠️ Migration 警告: {e}")
 
         print("✅ 資料庫初始化檢查完成！")
